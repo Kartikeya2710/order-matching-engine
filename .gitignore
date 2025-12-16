@@ -1,5 +1,6 @@
 # Prerequisites
 *.d
+*.DS_Store
 
 # Compiled Object files
 *.slo
@@ -39,3 +40,15 @@
 
 # debug information files
 *.dwo
+
+# Xcode
+## Build generated
+build/
+DerivedData/ 
+xcode-build/
+## Various settings
+*.pbxuser
+*.xcuserstate
+*.xcuserdata/
+*.xccheckout
+*.xcscmblueprint
