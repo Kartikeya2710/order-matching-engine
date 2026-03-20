@@ -46,6 +46,7 @@
 build/
 DerivedData/ 
 xcode-build/
+compile_commands.json
 ## Various settings
 *.pbxuser
 *.xcuserstate
