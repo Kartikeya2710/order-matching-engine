@@ -2,11 +2,11 @@
 
 namespace engine::types
 {
-    using OrderId = std::uint64_t;
-    using ClientId = std::uint64_t;
-    using Quantity = std::uint64_t;
-    using Price = std::uint64_t;
-    using InstrumentId = std::uint64_t;
+    using OrderId = std::uint32_t;
+    using ClientId = std::uint32_t;
+    using Quantity = std::uint32_t;
+    using Price = std::uint32_t;
+    using InstrumentId = std::uint32_t;
 
     enum class Verb : std::uint16_t
     {
