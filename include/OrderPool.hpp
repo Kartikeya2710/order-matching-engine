@@ -16,4 +16,44 @@ namespace engine::book
         std::uint32_t prev;
     };
 
+    constexpr std::uint32_t NULL_IDX = UINT32_MAX;
+
+    template <std::uint32_t Capacity>
+    class OrderPool
+    {
+    public:
+        static_assert(Capacity > 0 && Capacity <= (1u << 20), "Pool capacity must be between 1 and 1M orders");
+
+        OrderPool() noexcept
+        {
+            for (std::uint32_t i = 0; i < Capacity; ++i)
+            {
+                freeStack_[i] = Capacity - i - 1;
+            }
+            freeTop_ = Capacity - 1;
+        }
+
+        [[nodiscard]] std::uint32_t acquire() noexcept
+        {
+            if (__builtin_expect(freeTop_ == -1, 0))
+                return NULL_IDX;
+            return freeStack_[freeTop_--];
+        }
+
+        void release(std::uint32_t idx) noexcept
+        {
+            freeStack_[++freeTop_] = idx;
+        }
+
+        PoolOrder &operator[](std::uint32_t idx) noexcept { return slots_[idx]; }
+        const PoolOrder &operator[](std::uint32_t idx) const noexcept { return slots_[idx]; }
+        std::uint32_t freeCount() const noexcept { return freeTop_; }
+
+    private:
+        alignas(64) PoolOrder slots_[Capacity];
+        std::uint32_t freeStack_[Capacity];
+        // the next index inside freeStack_ that is available
+        std::uint32_t freeTop_;
+    };
+
 }
