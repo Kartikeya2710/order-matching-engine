@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include "Types.hpp"
+#include "OrderPool.hpp"
 
 namespace engine::book
 {
