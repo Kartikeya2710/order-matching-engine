@@ -33,6 +33,8 @@ namespace engine::book
             while (remainingQty > 0)
             {
                 types::Price bestPrice = isBuy ? locator_.bestAsk() : locator_.bestBid();
+                if (bestPrice == NO_PRICE)
+                    break;
                 if (cmd.limitPrice != NO_PRICE)
                 {
                     // if no order that can match my limit price
