@@ -27,8 +27,8 @@
 namespace engine
 {
 
-    inline void pinThreadToCore(std::thread &t, int core);
+    void pinThreadToCore(std::thread &t, int core);
 
-    inline void setThreadName(const std::string &name);
+    void setThreadName(const std::string &name);
 
 }

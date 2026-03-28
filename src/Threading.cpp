@@ -2,7 +2,7 @@
 
 namespace engine
 {
-    inline void pinThreadToCore(std::thread &t, int core)
+    void pinThreadToCore(std::thread &t, int core)
     {
 
 #if defined(PLATFORM_LINUX)
@@ -61,7 +61,7 @@ namespace engine
 #endif
     }
 
-    inline void setThreadName(const std::string &name)
+    void setThreadName(const std::string &name)
     {
 #if defined(PLATFORM_LINUX)
         pthread_setname_np(pthread_self(), name.substr(0, 15).c_str());
