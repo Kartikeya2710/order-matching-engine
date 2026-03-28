@@ -16,8 +16,6 @@ namespace engine::book
         std::uint32_t prev;
     };
 
-    constexpr std::uint32_t NULL_IDX = UINT32_MAX;
-
     template <std::uint32_t Capacity>
     class OrderPool
     {
