@@ -2,12 +2,12 @@
 
 namespace engine
 {
-    bool await_ready() const noexcept
+    bool QueueAwaitable::await_ready() const noexcept
     {
         return !ctx->inputQueue.isEmpty();
     }
 
-    bool await_suspend(std::coroutine_handle<> handle) noexcept
+    bool QueueAwaitable::await_suspend(std::coroutine_handle<> handle) noexcept
     {
         ctx->pendingHandle.store(handle.address(), std::memory_order_release);
 
@@ -23,5 +23,5 @@ namespace engine
         return true;
     }
 
-    void await_resume() const noexcept {}
+    void QueueAwaitable::await_resume() const noexcept {}
 }
