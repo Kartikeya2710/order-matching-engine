@@ -167,7 +167,8 @@ namespace engine::book
                 return;
             }
 
-            removeFromBook(cmd.orderId, it->second, cmd.verb, cmd.limitPrice);
+            PoolOrder &order = pool_[it->second];
+            removeFromBook(cmd.orderId, it->second, order.verb, order.price);
         }
 
         void modifyOrder(const engine::core::Command &cmd) noexcept
