@@ -2,7 +2,7 @@
 
 namespace engine
 {
-    explicit CoroutineWorker::CoroutineWorker(int workerId, int pinnedCore)
+    CoroutineWorker::CoroutineWorker(int workerId, int pinnedCore)
         : workerId_(workerId), pinnedCore_(pinnedCore) {}
 
     CoroutineWorker::~CoroutineWorker()
