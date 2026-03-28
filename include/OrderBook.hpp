@@ -49,11 +49,11 @@ namespace engine::book
                 {
                     std::uint32_t passivePoolIdx = level.head;
                     PoolOrder &passiveOrder = pool_[passivePoolIdx];
-                    types::Quantity fillQty = std::min(remaininQty, passiveOrder.qty);
+                    types::Quantity fillQty = std::min(remainingQty, passiveOrder.qty);
 
                     // trade happens
 
-                    remaininQty -= fillQty;
+                    remainingQty -= fillQty;
                     passiveOrder.qty -= fillQty;
 
                     // exhausted the passive order
@@ -64,7 +64,7 @@ namespace engine::book
                 }
             }
 
-            return remaining;
+            return remainingQty;
         }
 
         bool restInBook(const engine::core::Command &cmd, types::Quantity qty) noexcept
@@ -85,13 +85,13 @@ namespace engine::book
                 .tif = cmd.tif,
                 .next = NULL_IDX,
                 .prev = NULL_IDX,
-            }
+            };
 
-            PriveLevel &level = locator_.getPriceLevel(cmd.verb, cmd.limitPrice);
+            PriceLevel &level = locator_.getPriceLevel(cmd.verb, cmd.limitPrice);
             appendOrderInLevel(level, poolIdx, pool_);
             locator_.markNonEmpty(cmd.verb, cmd.limitPrice);
 
-            index_.insert(cmd.orderId, poolIdx);
+            index_[cmd.orderId] = poolIdx;
 
             return true;
         }
@@ -130,12 +130,12 @@ namespace engine::book
         {
             const bool isBuy = (cmd.verb == types::Verb::Buy);
             const auto oppSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
-            types::Quantity remainingQty = cmd.quantity;
+            types::Quantity remainingQty = cmd.qty;
 
             if (cmd.orderType == types::OrderType::Market)
             {
-                remaining = matchAggressor(cmd);
-                if (remaining > 0)
+                remainingQty = matchAggressor(cmd);
+                if (remainingQty > 0)
                 {
                     emitRejected(cmd, "market order unfilled");
                 }
