@@ -71,6 +71,13 @@ namespace utils
             read_idx.store((current_read + 1) & mask, std::memory_order_release);
             return true;
         }
+
+        bool isEmpty() noexcept
+        {
+            const auto current_write = write_idx.load(std::memory_order_relaxed);
+            const auto current_read = read_idx.load(std::memory_order_relaxed);
+            return current_write == current_read;
+        }
     };
 
 }
