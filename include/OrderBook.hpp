@@ -57,6 +57,7 @@ namespace engine::book
 
                     remainingQty -= fillQty;
                     passiveOrder.qty -= fillQty;
+                    level.totalQty -= fillQty;
 
                     // exhausted the passive order
                     if (passiveOrder.qty == 0)
