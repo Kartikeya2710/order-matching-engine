@@ -1,3 +1,4 @@
+#pragma once
 #include "Types.hpp"
 #include <cstddef>
 
@@ -51,7 +52,7 @@ namespace engine::book
         alignas(64) PoolOrder slots_[Capacity];
         std::uint32_t freeStack_[Capacity];
         // the next index inside freeStack_ that is available
-        std::uint32_t freeTop_;
+        std::int32_t freeTop_;
     };
 
 }
