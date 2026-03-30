@@ -22,8 +22,8 @@ namespace engine::book
         size_t numLevels_;
         std::vector<PriceLevel> bids_;
         std::vector<PriceLevel> asks_;
-        std::vector<std::uint32_t> bidBitMap_;
-        std::vector<std::uint32_t> askBitMap_;
+        std::vector<std::uint64_t> bidBitMap_;
+        std::vector<std::uint64_t> askBitMap_;
 
         std::uint32_t priceToIndex(types::Price price) const noexcept;
 
@@ -31,13 +31,13 @@ namespace engine::book
 
         std::vector<PriceLevel> &priceLevels(types::Verb verb) noexcept;
 
-        std::vector<std::uint32_t> &bitMapFor(types::Verb verb) noexcept;
+        std::vector<std::uint64_t> &bitMapFor(types::Verb verb) noexcept;
 
-        const std::vector<std::uint32_t> &bitMapFor(types::Verb verb) const noexcept;
+        const std::vector<std::uint64_t> &bitMapFor(types::Verb verb) const noexcept;
 
-        void setBit(std::vector<std::uint32_t> &bm, std::uint32_t idx) noexcept;
+        void setBit(std::vector<std::uint64_t> &bm, std::uint32_t idx) noexcept;
 
-        void clearBit(std::vector<std::uint32_t> &bm, std::uint32_t idx) noexcept;
+        void clearBit(std::vector<std::uint64_t> &bm, std::uint32_t idx) noexcept;
 
     public:
         explicit ArrayBitMapLocator(PriceRange range);

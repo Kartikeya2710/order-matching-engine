@@ -17,24 +17,24 @@ namespace engine::book
         return (verb == types::Verb::Buy) ? bids_ : asks_;
     }
 
-    std::vector<std::uint32_t> &ArrayBitMapLocator::bitMapFor(types::Verb verb) noexcept
+    std::vector<std::uint64_t> &ArrayBitMapLocator::bitMapFor(types::Verb verb) noexcept
     {
         return (verb == types::Verb::Buy) ? bidBitMap_ : askBitMap_;
     }
 
-    const std::vector<std::uint32_t> &ArrayBitMapLocator::bitMapFor(types::Verb verb) const noexcept
+    const std::vector<std::uint64_t> &ArrayBitMapLocator::bitMapFor(types::Verb verb) const noexcept
     {
         return (verb == types::Verb::Buy) ? bidBitMap_ : askBitMap_;
     }
 
-    void ArrayBitMapLocator::setBit(std::vector<std::uint32_t> &bm, std::uint32_t idx) noexcept
+    void ArrayBitMapLocator::setBit(std::vector<std::uint64_t> &bm, std::uint32_t idx) noexcept
     {
-        bm[idx / BITMAP_WORD_SIZE] |= (1ULL << (idx % BITMAP_WORD_SIZE));
+        bm[idx / BITMAP_WORD_SIZE] |= (uint64_t{1} << (idx % BITMAP_WORD_SIZE));
     }
 
-    void ArrayBitMapLocator::clearBit(std::vector<std::uint32_t> &bm, std::uint32_t idx) noexcept
+    void ArrayBitMapLocator::clearBit(std::vector<std::uint64_t> &bm, std::uint32_t idx) noexcept
     {
-        bm[idx / BITMAP_WORD_SIZE] &= ~(1ULL << (idx % BITMAP_WORD_SIZE));
+        bm[idx / BITMAP_WORD_SIZE] &= ~(uint64_t{1} << (idx % BITMAP_WORD_SIZE));
     }
 
     ArrayBitMapLocator::ArrayBitMapLocator(PriceRange range)
