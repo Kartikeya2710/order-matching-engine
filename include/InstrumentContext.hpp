@@ -4,6 +4,7 @@
 #include "RingBuffer.hpp"
 #include <atomic>
 #include <immintrin.h>
+#include <variant>
 #include <coroutine>
 
 namespace engine
@@ -32,7 +33,7 @@ namespace engine
     // Called by the gateway thread instead of ctx->inputQueue.enqueue() directly.
     // Enqueues the command and wakes the coroutine if it was sleeping.
     inline bool gatewayEnqueue(InstrumentContext *ctx,
-                               engine::core::Command cmd) noexcept
+                               core::Command cmd) noexcept
     {
         if (!ctx->inputQueue.enqueue(std::move(cmd)))
             return false; // queue full

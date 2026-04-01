@@ -175,7 +175,7 @@ namespace engine::book
                 // reject the request
                 return;
             }
-            
+
             uint32_t poolIdx = it->second;
             PoolOrder &order = pool_[poolIdx];
 
@@ -199,3 +199,4 @@ namespace engine::book
     };
 
     using FastBook = OrderBook<ArrayBitMapLocator, 32768, 65536>;
+}

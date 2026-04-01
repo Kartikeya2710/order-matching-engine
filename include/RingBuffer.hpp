@@ -4,12 +4,12 @@
 #include <atomic>
 #include <bit>
 
-namespace utils
+namespace engine::utils
 {
 
     // Leave one empty slot in the buffer to differentiate between full and empty condition (otherwise, read_idx == write_idx in both the cases).
     // This helps us avoid having to maintain a state indicating whether the buffer is full or empty.
-    template <typename data_T, std::size_t size_T>
+    template <typename data_T, size_t size_T>
     class SPSC_RingBuffer
     {
     private:

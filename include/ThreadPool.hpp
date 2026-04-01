@@ -1,4 +1,6 @@
+#pragma once
 #include "CoroutineWorker.hpp"
+#include "InstrumentContext.hpp"
 #include <cstddef>
 
 namespace engine
