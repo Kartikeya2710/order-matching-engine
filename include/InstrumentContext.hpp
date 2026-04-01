@@ -19,6 +19,9 @@ namespace engine
         types::InstrumentId instrumentId = 0;
         std::atomic<int> assignedWorker{-1};
 
+        // Coroutine wake-up mechanism:
+        //   null     = coroutine is running or not yet started
+        //   non-null = coroutine is parked; gateway should push to wakeQueue
         std::atomic<void *> pendingHandle{nullptr};
         utils::SPSC_RingBuffer<void *, 1024> *wakeQueue{nullptr};
 
@@ -26,11 +29,15 @@ namespace engine
         InstrumentContext &operator=(const InstrumentContext &) = delete;
     };
 
-    bool gatewayEnqueue(InstrumentContext *ctx, engine::core::Command &cmd) noexcept
+    // Called by the gateway thread instead of ctx->inputQueue.enqueue() directly.
+    // Enqueues the command and wakes the coroutine if it was sleeping.
+    inline bool gatewayEnqueue(InstrumentContext *ctx,
+                               engine::core::Command cmd) noexcept
     {
         if (!ctx->inputQueue.enqueue(std::move(cmd)))
             return false; // queue full
 
+        // Atomically grab the parked handle (and clear pendingHandle to null).
         void *h = ctx->pendingHandle.exchange(nullptr, std::memory_order_acq_rel);
         if (h != nullptr)
         {
