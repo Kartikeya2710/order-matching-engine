@@ -1,26 +1,35 @@
 #pragma once
 #include <cstdint>
 #include "Types.hpp"
-#include "OrderPool.hpp"
 
 namespace engine::book
 {
-    static constexpr std::uint32_t NULL_IDX = UINT32_MAX;
+    template <uint32_t C>
+    class OrderPool;
+}
+
+namespace engine::book
+{
+
+    static constexpr uint32_t NULL_IDX = UINT32_MAX;
+
+    // NO_PRICE is returned by bestBid/bestAsk when the side is empty.
     static constexpr types::Price NO_PRICE = types::Price(-1);
 
     struct PriceLevel
     {
-        std::uint32_t head = NULL_IDX;
-        std::uint32_t tail = NULL_IDX;
+        uint32_t head = NULL_IDX;
+        uint32_t tail = NULL_IDX;
         types::Quantity totalQty = 0;
-        std::uint32_t orderCount = 0;
+        uint32_t orderCount = 0;
 
         bool empty() const noexcept { return head == NULL_IDX; }
     };
 
     // Free functions — take pool by reference so PriceLevel stays a plain struct.
-    template <size_t PoolCap>
-    void appendOrderInLevel(PriceLevel &level, std::uint32_t poolIdx, OrderPool<PoolCap> &pool) noexcept
+    template <uint32_t PoolCap>
+    void appendOrderInLevel(PriceLevel &level, uint32_t poolIdx,
+                            OrderPool<PoolCap> &pool) noexcept
     {
         pool[poolIdx].next = NULL_IDX;
         pool[poolIdx].prev = level.tail;
@@ -31,12 +40,13 @@ namespace engine::book
             level.head = poolIdx;
 
         level.tail = poolIdx;
-        level.totalQty += pool[poolIdx].quantity;
+        level.totalQty += pool[poolIdx].qty;
         ++level.orderCount;
     }
 
-    template <size_t PoolCap>
-    void removeOrderFromLevel(PriceLevel &level, std::uint32_t poolIdx, OrderPool<PoolCap> &pool) noexcept
+    template <uint32_t PoolCap>
+    void removeOrderFromLevel(PriceLevel &level, uint32_t poolIdx,
+                              OrderPool<PoolCap> &pool) noexcept
     {
         auto &order = pool[poolIdx];
 
@@ -50,7 +60,7 @@ namespace engine::book
         else
             level.tail = order.prev;
 
-        level.totalQty -= order.quantity;
+        level.totalQty -= order.qty;
         --level.orderCount;
     }
 }
