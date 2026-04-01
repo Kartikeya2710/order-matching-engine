@@ -1,8 +1,6 @@
 #pragma once
-#include <string>
-#include <vector>
-#include <deque>
-#include <map>
+#include <functional>
+#include <unordered_map>
 #include "Command.hpp"
 #include "OrderPool.hpp"
 #include "PriceLevel.hpp"
@@ -19,11 +17,11 @@ namespace engine::book
     private:
         OrderPool<PoolCap> pool_;
         LevelLocator locator_;
-        std::unordered_map<types::OrderId, std::uint32_t> index_;
+        std::unordered_map<types::OrderId, uint32_t> index_;
+        types::InstrumentId instrumentId_ = 0;
 
-        types::InstrumentId instrumentId_;
-        std::size_t capacity_;
-
+        // Run the match loop. Returns unfilled remainingQty quantity.
+        // priceLimit is ignored for market orders (pass NO_PRICE).
         types::Quantity matchAggressor(const engine::core::Command &cmd) noexcept
         {
             const bool isBuy = (cmd.verb == types::Verb::Buy);
@@ -45,11 +43,11 @@ namespace engine::book
                 PriceLevel &level = locator_.getPriceLevel(passiveSide, bestPrice);
                 // !!!!!!!!!!!!!!!!! CATASTRPHIC FAILURE !!!!!!!!!!!!!!!!!!!!
                 if (level.empty())
-                    break;
+                    break; // should not happen if bitmap is correct
 
                 while (remainingQty > 0 && !level.empty())
                 {
-                    std::uint32_t passivePoolIdx = level.head;
+                    uint32_t passivePoolIdx = level.head;
                     PoolOrder &passiveOrder = pool_[passivePoolIdx];
                     types::Quantity fillQty = std::min(remainingQty, passiveOrder.qty);
 
@@ -62,20 +60,18 @@ namespace engine::book
                     // exhausted the passive order
                     if (passiveOrder.qty == 0)
                     {
-                        removeFromBook(cmd.orderId, passivePoolIdx, passiveSide, bestPrice);
+                        removeFromBook(passiveOrder.qty, passiveIdx, passiveSide, bestPrice);
                     }
                 }
             }
-
             return remainingQty;
         }
 
         bool restInBook(const engine::core::Command &cmd, types::Quantity qty) noexcept
         {
-            std::uint32_t poolIdx = pool_.acquire();
-            if (__builtin_expect(poolIdx == NULL_IDX, 0))
+            uint32_t poolIdx = pool_.acquire();
+            if (__builtin_expect(poolIdx == UINT32_MAX, 0))
             {
-                // emit rejection
                 return false;
             }
 
@@ -99,7 +95,10 @@ namespace engine::book
             return true;
         }
 
-        void removeFromBook(types::OrderId orderId, std::uint32_t poolIdx, types::Verb verb, types::Price price) noexcept
+        // Removes an order from its price level and releases its pool slot.
+        // Does NOT touch the index — callers handle that.
+        void removeFromBook(types::OrderId orderId, uint32_t poolIdx,
+                            types::Verb verb, types::Price price) noexcept
         {
             PriceLevel &level = locator_.getPriceLevel(verb, price);
             removeOrderFromLevel(level, poolIdx, pool_);
@@ -113,48 +112,43 @@ namespace engine::book
             index_.erase(orderId);
         }
 
-        static void emitRejected(
-            const engine::core::Command &cmd,
-            [[maybe_unused]] const char *reason) noexcept
-        {
-        }
-
     public:
-        explicit OrderBook(LevelLocator locator) : locator_(std::move(locator))
+        explicit OrderBook(LevelLocator locator,
+                           types::InstrumentId instrumentId = 0)
+            : locator_(std::move(locator)), instrumentId_(instrumentId)
         {
         }
 
         OrderBook() = default;
-
         OrderBook(const OrderBook &) = delete;
         OrderBook &operator=(const OrderBook &) = delete;
 
         void addOrder(const engine::core::Command &cmd) noexcept
         {
-            const bool isBuy = (cmd.verb == types::Verb::Buy);
-            const auto oppSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
-            types::Quantity remainingQty = cmd.qty;
-
             if (cmd.orderType == types::OrderType::Market)
             {
-                remainingQty = matchAggressor(cmd);
+                types::Quantity remainingQty = matchAggressor(cmd);
                 if (remainingQty > 0)
                 {
-                    emitRejected(cmd, "market order unfilled");
+                    // market order is unfilled
                 }
+
                 return;
             }
 
-            remainingQty = matchAggressor(cmd);
+            // Validate price before touching the book.
+            if (!locator_.isInRange(cmd.limitPrice) || !locator_.isAligned(cmd.limitPrice))
+            {
+                // limit price is invalid
+                return;
+            }
+
+            types::Quantity remainingQty = matchAggressor(cmd, cmd.limitPrice);
 
             if (remainingQty == 0)
-            {
-                return;
-            }
+                return; // fully filled
             if (cmd.tif == types::TimeInForce::IOC)
-            {
-                return;
-            }
+                return; // discard unfilled
 
             restInBook(cmd, remainingQty);
         }
@@ -167,9 +161,10 @@ namespace engine::book
                 // reject the request
                 return;
             }
+            uint32_t poolIdx = it->second;
+            PoolOrder &order = pool_[poolIdx]; // get stored verb/price, NOT cmd fields
 
-            PoolOrder &order = pool_[it->second];
-            removeFromBook(cmd.orderId, it->second, order.verb, order.price);
+            removeFromBook(order.orderId, poolIdx, order.verb, order.price);
         }
 
         void modifyOrder(const engine::core::Command &cmd) noexcept
@@ -180,10 +175,11 @@ namespace engine::book
                 // reject the request
                 return;
             }
-            std::uint32_t poolIdx = it->second;
+            
+            uint32_t poolIdx = it->second;
             PoolOrder &order = pool_[poolIdx];
 
-            // Price unchanged and quantity reduced (the only case where I preserve price-time priority)
+            // Quantity decrease at same price: update in place, preserve time priority.
             if (cmd.limitPrice == order.price && cmd.verb == order.verb && cmd.qty < order.qty)
             {
                 PriceLevel &level = locator_.getPriceLevel(order.verb, order.price);
@@ -192,16 +188,14 @@ namespace engine::book
                 return;
             }
 
-            // Remove the order and insert a new one
+            // Everything else (price change or quantity increase): cancel + re-add.
             removeFromBook(order.orderId, poolIdx, order.verb, order.price);
             restInBook(cmd, cmd.qty);
         }
 
         types::Price bestBid() const noexcept { return locator_.bestBid(); }
         types::Price bestAsk() const noexcept { return locator_.bestAsk(); }
-
-        size_t poolFreeCount() const noexcept { return pool_.freeCount(); }
+        uint32_t poolFreeCount() const noexcept { return pool_.freeCount(); }
     };
 
     using FastBook = OrderBook<ArrayBitMapLocator, 32768, 65536>;
-}
