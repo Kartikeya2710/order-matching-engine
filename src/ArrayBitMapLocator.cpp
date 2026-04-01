@@ -2,12 +2,12 @@
 
 namespace engine::book
 {
-    std::uint32_t ArrayBitMapLocator::priceToIndex(types::Price price) const noexcept
+    uint32_t ArrayBitMapLocator::priceToIndex(types::Price price) const noexcept
     {
-        return static_cast<std::uint32_t>((price - range_.minPrice) / range_.tickSize);
+        return static_cast<uint32_t>((price - range_.minPrice) / range_.tickSize);
     }
 
-    types::Price ArrayBitMapLocator::indexToPrice(std::uint32_t idx) const noexcept
+    types::Price ArrayBitMapLocator::indexToPrice(uint32_t idx) const noexcept
     {
         return range_.minPrice + idx * range_.tickSize;
     }
@@ -17,28 +17,28 @@ namespace engine::book
         return (verb == types::Verb::Buy) ? bids_ : asks_;
     }
 
-    std::vector<std::uint64_t> &ArrayBitMapLocator::bitMapFor(types::Verb verb) noexcept
+    std::vector<uint64_t> &ArrayBitMapLocator::bitMapFor(types::Verb verb) noexcept
     {
         return (verb == types::Verb::Buy) ? bidBitMap_ : askBitMap_;
     }
 
-    const std::vector<std::uint64_t> &ArrayBitMapLocator::bitMapFor(types::Verb verb) const noexcept
+    const std::vector<uint64_t> &ArrayBitMapLocator::bitMapFor(types::Verb verb) const noexcept
     {
         return (verb == types::Verb::Buy) ? bidBitMap_ : askBitMap_;
     }
 
-    void ArrayBitMapLocator::setBit(std::vector<std::uint64_t> &bm, std::uint32_t idx) noexcept
+    void ArrayBitMapLocator::setBit(std::vector<uint64_t> &bm, uint32_t idx) noexcept
     {
         bm[idx / BITMAP_WORD_SIZE] |= (uint64_t{1} << (idx % BITMAP_WORD_SIZE));
     }
 
-    void ArrayBitMapLocator::clearBit(std::vector<std::uint64_t> &bm, std::uint32_t idx) noexcept
+    void ArrayBitMapLocator::clearBit(std::vector<uint64_t> &bm, uint32_t idx) noexcept
     {
         bm[idx / BITMAP_WORD_SIZE] &= ~(uint64_t{1} << (idx % BITMAP_WORD_SIZE));
     }
 
     ArrayBitMapLocator::ArrayBitMapLocator(PriceRange range)
-        : range_(range), numLevels_(((range.maxPrice - range.minPrice) / range.tickSize) + 1), bids_(numLevels_), asks_(numLevels_), bidBitMap_((numLevels_ + BITMAP_WORD_SIZE - 1) / BITMAP_WORD_SIZE, std::uint32_t{0}), askBitMap_((numLevels_ + BITMAP_WORD_SIZE - 1) / BITMAP_WORD_SIZE, std::uint32_t{0})
+        : range_(range), numLevels_(((range.maxPrice - range.minPrice) / range.tickSize) + 1), bids_(numLevels_), asks_(numLevels_), bidBitMap_((numLevels_ + BITMAP_WORD_SIZE - 1) / BITMAP_WORD_SIZE, uint64_t{0}), askBitMap_((numLevels_ + BITMAP_WORD_SIZE - 1) / BITMAP_WORD_SIZE, uint64_t{0})
     {
     }
 

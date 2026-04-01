@@ -1,6 +1,8 @@
+#pragma once
 #include "PriceLevel.hpp"
 #include "Types.hpp"
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace engine::book
@@ -13,7 +15,8 @@ namespace engine::book
         types::Price tickSize;
     };
 
-    static constexpr std::uint32_t BITMAP_WORD_SIZE = 64;
+    // Each bitmap word is 64 bits — one word covers 64 consecutive price levels.
+    static constexpr uint32_t BITMAP_WORD_SIZE = 64;
 
     class ArrayBitMapLocator
     {
@@ -22,22 +25,19 @@ namespace engine::book
         size_t numLevels_;
         std::vector<PriceLevel> bids_;
         std::vector<PriceLevel> asks_;
-        std::vector<std::uint64_t> bidBitMap_;
-        std::vector<std::uint64_t> askBitMap_;
+        std::vector<uint64_t> bidBitMap_; // one bit per price level
+        std::vector<uint64_t> askBitMap_;
 
-        std::uint32_t priceToIndex(types::Price price) const noexcept;
-
-        types::Price indexToPrice(std::uint32_t idx) const noexcept;
+        uint32_t priceToIndex(types::Price price) const noexcept;
+        types::Price indexToPrice(uint32_t idx) const noexcept;
 
         std::vector<PriceLevel> &priceLevels(types::Verb verb) noexcept;
 
-        std::vector<std::uint64_t> &bitMapFor(types::Verb verb) noexcept;
+        std::vector<uint64_t> &bitMapFor(types::Verb verb) noexcept;
+        const std::vector<uint64_t> &bitMapFor(types::Verb verb) const noexcept;
 
-        const std::vector<std::uint64_t> &bitMapFor(types::Verb verb) const noexcept;
-
-        void setBit(std::vector<std::uint64_t> &bm, std::uint32_t idx) noexcept;
-
-        void clearBit(std::vector<std::uint64_t> &bm, std::uint32_t idx) noexcept;
+        void setBit(std::vector<uint64_t> &bm, uint32_t idx) noexcept;
+        void clearBit(std::vector<uint64_t> &bm, uint32_t idx) noexcept;
 
     public:
         explicit ArrayBitMapLocator(PriceRange range);
@@ -45,15 +45,12 @@ namespace engine::book
         PriceLevel &getPriceLevel(types::Verb verb, types::Price price) noexcept;
 
         void markEmpty(types::Verb side, types::Price price) noexcept;
-
         void markNonEmpty(types::Verb side, types::Price price) noexcept;
 
         bool isInRange(types::Price price) const noexcept;
-
         bool isAligned(types::Price price) const noexcept;
 
         types::Price bestBid() const noexcept;
-
         types::Price bestAsk() const noexcept;
     };
 
