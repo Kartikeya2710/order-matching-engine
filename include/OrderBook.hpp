@@ -60,7 +60,7 @@ namespace engine::book
                     // exhausted the passive order
                     if (passiveOrder.qty == 0)
                     {
-                        removeFromBook(passiveOrder.qty, passiveIdx, passiveSide, bestPrice);
+                        removeFromBook(passiveOrder.qty, passivePoolIdx, passiveSide, bestPrice);
                     }
                 }
             }
@@ -143,7 +143,7 @@ namespace engine::book
                 return;
             }
 
-            types::Quantity remainingQty = matchAggressor(cmd, cmd.limitPrice);
+            types::Quantity remainingQty = matchAggressor(cmd);
 
             if (remainingQty == 0)
                 return; // fully filled
@@ -196,6 +196,7 @@ namespace engine::book
         types::Price bestBid() const noexcept { return locator_.bestBid(); }
         types::Price bestAsk() const noexcept { return locator_.bestAsk(); }
         uint32_t poolFreeCount() const noexcept { return pool_.freeCount(); }
+        size_t openOrders() const noexcept { return index_.size(); }
     };
 
     using FastBook = OrderBook<ArrayBitMapLocator, 32768, 65536>;
