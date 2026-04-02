@@ -1,4 +1,5 @@
 #include "MatchingCore.hpp"
+#include "InstrumentConfig.hpp"
 #include <immintrin.h>
 #include <variant>
 
@@ -15,18 +16,37 @@ namespace engine
         stop();
     }
 
-    void MatchingCore::addInstrument(types::InstrumentId id,
-                                     book::PriceRange range)
+    void MatchingCore::loadInstruments(const std::vector<InstrumentConfig> &configs)
     {
+        for (const auto &cfg : configs)
+        {
+            addInstrument(cfg);
+        }
+    }
+
+    void MatchingCore::addInstrument(InstrumentConfig cfg)
+    {
+        types::InstrumentId id = cfg.instrumentId;
+        book::PriceRange range = cfg.priceRange;
+        BookType bookType = cfg.bookType;
+
         auto ctx = std::make_unique<InstrumentContext>();
         ctx->instrumentId = id;
 
         InstrumentContext *rawCtx = ctx.get();
 
-        // in-place construction of the book inside the variant's memory
-        ctx->book.emplace<book::FastBook>(
-            book::ArrayBitMapLocator(range),
-            id);
+        switch (bookType)
+        {
+        case BookType::FastBook:
+            // in-place construction of the book inside the variant's memory
+            ctx->book.emplace<book::FastBook>(
+                book::ArrayBitMapLocator(range),
+                id);
+            break;
+
+        default:
+            break;
+        }
 
         pool_->assignInstrument(ctx.get());
         contexts_[id] = std::move(ctx);

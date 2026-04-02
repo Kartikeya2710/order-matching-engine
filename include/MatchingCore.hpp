@@ -2,6 +2,7 @@
 #include "ThreadPool.hpp"
 #include "InstrumentContext.hpp"
 #include "ArrayBitMapLocator.hpp"
+#include "InstrumentConfig.hpp"
 #include <unordered_map>
 #include <thread>
 #include <memory>
@@ -27,7 +28,9 @@ namespace engine
         MatchingCore(const MatchingCore &) = delete;
         MatchingCore &operator=(const MatchingCore &) = delete;
 
-        void addInstrument(types::InstrumentId id, book::PriceRange range);
+        void loadInstruments(const std::vector<InstrumentConfig> &configs);
+
+        void addInstrument(InstrumentConfig cfg);
 
         void start();
 
