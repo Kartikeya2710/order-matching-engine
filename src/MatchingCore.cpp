@@ -1,6 +1,5 @@
 #include "MatchingCore.hpp"
 #include "InstrumentConfig.hpp"
-#include <immintrin.h>
 #include <variant>
 
 namespace engine
@@ -32,8 +31,6 @@ namespace engine
 
         auto ctx = std::make_unique<InstrumentContext>();
         ctx->instrumentId = id;
-
-        InstrumentContext *rawCtx = ctx.get();
 
         switch (bookType)
         {
