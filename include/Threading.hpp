@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <iostream>
 
 #if defined(_WIN32) || defined(_WIN64)
 #define PLATFORM_WINDOWS

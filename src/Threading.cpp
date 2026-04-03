@@ -34,9 +34,17 @@ namespace engine
 
         if (kr != KERN_SUCCESS)
         {
-            throw std::runtime_error(
-                "Failed to set affinity tag " + std::to_string(core) +
-                " (kr=" + std::to_string(kr) + ")");
+            if (kr == 46)
+            {
+                // Apple Silicon does not support strict pinning.
+                std::cerr << "Warning: Could not pin thread to core " << core << " (macOS kr=46)" << std::endl;
+            }
+            else
+            {
+                throw std::runtime_error(
+                    "Failed to set affinity tag " + std::to_string(core) +
+                    " (kr=" + std::to_string(kr) + ")");
+            }
         }
 
 #elif defined(PLATFORM_WINDOWS)
