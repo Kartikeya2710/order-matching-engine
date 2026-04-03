@@ -56,7 +56,7 @@ namespace engine
             ready.clear();
 
             if (wakeQueue_.isEmpty())
-                _mm_pause();
+                CPU_RELAX();
         }
     }
 

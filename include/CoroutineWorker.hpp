@@ -5,7 +5,6 @@
 #include "RingBuffer.hpp"
 #include "Task.hpp"
 #include <thread>
-#include <immintrin.h>
 #include <vector>
 #include <atomic>
 

@@ -1,9 +1,9 @@
 #pragma once
 #include "OrderBook.hpp"
 #include "Command.hpp"
+#include "Threading.hpp"
 #include "RingBuffer.hpp"
 #include <atomic>
-#include <immintrin.h>
 #include <variant>
 #include <coroutine>
 
@@ -43,7 +43,7 @@ namespace engine
         if (h != nullptr)
         {
             while (!ctx->wakeQueue->enqueue(std::move(h)))
-                _mm_pause();
+                CPU_RELAX();
         }
         return true;
     }

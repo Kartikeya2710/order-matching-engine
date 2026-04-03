@@ -24,6 +24,19 @@
 #include <windows.h>
 #endif
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#define CPU_RELAX() _mm_pause()
+#elif defined(__i386__) || defined(__x86_64__)
+#include <immintrin.h>
+#define CPU_RELAX() _mm_pause()
+#elif defined(__arm__) || defined(__aarch64__)
+#define CPU_RELAX() __asm__ __volatile__("yield" ::: "memory")
+#else
+#include <thread>
+#define CPU_RELAX() std::this_thread::yield()
+#endif
+
 namespace engine
 {
 
