@@ -26,24 +26,8 @@ namespace engine
     void MatchingCore::addInstrument(InstrumentConfig cfg)
     {
         types::InstrumentId id = cfg.instrumentId;
-        book::PriceRange range = cfg.priceRange;
-        BookType bookType = cfg.bookType;
 
-        auto ctx = std::make_unique<InstrumentContext>();
-        ctx->instrumentId = id;
-
-        switch (bookType)
-        {
-        case BookType::FastBook:
-            // in-place construction of the book inside the variant's memory
-            ctx->book.emplace<book::FastBook>(
-                book::ArrayBitMapLocator(range),
-                id);
-            break;
-
-        default:
-            break;
-        }
+        auto ctx = std::make_unique<InstrumentContext>(cfg);
 
         pool_->assignInstrument(ctx.get());
         contexts_[id] = std::move(ctx);

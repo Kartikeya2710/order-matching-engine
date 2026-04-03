@@ -122,6 +122,8 @@ namespace engine::book
         OrderBook() = default;
         OrderBook(const OrderBook &) = delete;
         OrderBook &operator=(const OrderBook &) = delete;
+        OrderBook(OrderBook &&) noexcept = default;
+        OrderBook &operator=(OrderBook &&) noexcept = default;
 
         void addOrder(const engine::core::Command &cmd) noexcept
         {

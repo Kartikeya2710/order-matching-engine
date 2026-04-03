@@ -3,6 +3,7 @@
 #include "Command.hpp"
 #include "Threading.hpp"
 #include "RingBuffer.hpp"
+#include "InstrumentConfig.hpp"
 #include <atomic>
 #include <variant>
 #include <coroutine>
@@ -16,22 +17,30 @@ namespace engine
     {
         utils::SPSC_RingBuffer<engine::core::Command, 4096> inputQueue;
 
-        BookVariant book;
         types::InstrumentId instrumentId = 0;
+        BookVariant book;
         std::atomic<int> assignedWorker{-1};
 
-        // Coroutine wake-up mechanism:
-        //   null     = coroutine is running or not yet started
-        //   non-null = coroutine is parked; gateway should push to wakeQueue
         std::atomic<void *> pendingHandle{nullptr};
         utils::SPSC_RingBuffer<void *, 1024> *wakeQueue{nullptr};
+
+        InstrumentContext(const InstrumentConfig &cfg)
+            : instrumentId(cfg.instrumentId),
+              book([&]() -> BookVariant
+                   {
+              switch (cfg.bookType) {
+                  case BookType::FastBook:
+                        return book::FastBook(book::ArrayBitMapLocator(cfg.priceRange), cfg.instrumentId);
+                  default:
+                      throw std::runtime_error("Unsupported BookType");
+              } }())
+        {
+        }
 
         InstrumentContext(const InstrumentContext &) = delete;
         InstrumentContext &operator=(const InstrumentContext &) = delete;
     };
 
-    // Called by the gateway thread instead of ctx->inputQueue.enqueue() directly.
-    // Enqueues the command and wakes the coroutine if it was sleeping.
     inline bool gatewayEnqueue(InstrumentContext *ctx,
                                core::Command cmd) noexcept
     {
