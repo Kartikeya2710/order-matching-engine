@@ -146,8 +146,9 @@ namespace engine::book
 
     public:
         explicit OrderBook(LevelLocator locator,
-                           types::InstrumentId instrumentId = 0)
-            : locator_(std::move(locator)), instrumentId_(instrumentId)
+                           types::InstrumentId instrumentId = 0,
+                           EventCallback cb = nullptr)
+            : locator_(std::move(locator)), instrumentId_(instrumentId), onEvent_(std::move(cb))
         {
         }
 
