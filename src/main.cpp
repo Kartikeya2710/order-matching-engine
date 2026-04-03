@@ -7,47 +7,6 @@
 #include "MatchingCore.hpp"
 #include "InstrumentConfig.hpp"
 
-static constexpr uint32_t TICK = 1;
-
-static engine::core::Command makeLimit(
-    engine::core::CommandType type,
-    uint32_t orderId,
-    uint32_t instrumentId,
-    engine::types::Verb verb,
-    uint32_t price,
-    uint32_t qty,
-    engine::types::TimeInForce tif = engine::types::TimeInForce::GTC)
-{
-    engine::core::Command cmd{};
-    cmd.type = type;
-    cmd.orderId = orderId;
-    cmd.instrumentId = instrumentId;
-    cmd.clientId = 1;
-    cmd.verb = verb;
-    cmd.orderType = engine::types::OrderType::Limit;
-    cmd.tif = tif;
-    cmd.limitPrice = price;
-    cmd.qty = qty;
-    return cmd;
-}
-
-static engine::core::Command makeMarket(
-    uint32_t orderId, uint32_t instrumentId,
-    engine::types::Verb verb, uint32_t qty)
-{
-    engine::core::Command cmd{};
-    cmd.type = engine::core::CommandType::AddOrder;
-    cmd.orderId = orderId;
-    cmd.instrumentId = instrumentId;
-    cmd.clientId = 1;
-    cmd.verb = verb;
-    cmd.orderType = engine::types::OrderType::Market;
-    cmd.tif = engine::types::TimeInForce::IOC;
-    cmd.limitPrice = engine::book::NO_PRICE;
-    cmd.qty = qty;
-    return cmd;
-}
-
 static void printEvent(const engine::core::TradeEvent &ev)
 {
     using T = engine::core::TradeEvent::Type;
