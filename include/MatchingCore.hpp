@@ -17,9 +17,11 @@ namespace engine
     public:
         struct Config
         {
-            size_t numWorkers = std::max(1u,
-                                         static_cast<unsigned>(std::thread::hardware_concurrency()) - 2);
-            int firstWorkerCore = 2;
+            size_t numWorkers;
+            int firstWorkerCore;
+
+            Config() : numWorkers(std::max(1u, std::thread::hardware_concurrency() - 2)),
+                       firstWorkerCore(2) {}
         };
 
         explicit MatchingCore(Config cfg = {});
