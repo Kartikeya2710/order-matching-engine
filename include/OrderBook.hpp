@@ -67,23 +67,24 @@ namespace engine::book
                     passiveOrder.qty -= fillQty;
                     level.totalQty -= fillQty;
 
+                    bool fulfill = passiveOrder.qty == 0;
                     emit({
-                        .type = fullFill
+                        .type = fulfill
                                     ? engine::core::TradeEvent::Type::Fill
                                     : engine::core::TradeEvent::Type::PartialFill,
                         .instrumentId = instrumentId_,
                         .aggressorOrderId = cmd.orderId,
-                        .passiveOrderId = passive.orderId,
+                        .passiveOrderId = passiveOrder.orderId,
                         .aggressorClientId = cmd.clientId,
-                        .passiveClientId = passive.clientId,
-                        .fillPrice = best,
+                        .passiveClientId = passiveOrder.clientId,
+                        .fillPrice = bestPrice,
                         .fillQty = fillQty,
-                        .aggressorRemaining = remaining,
-                        .passiveRemaining = passive.qty,
+                        .aggressorRemaining = remainingQty,
+                        .passiveRemaining = passiveOrder.qty,
                     });
 
                     // exhausted the passive order
-                    if (passiveOrder.qty == 0)
+                    if (fulfill)
                     {
                         removeFromBook(passiveOrder.qty, passivePoolIdx, passiveSide, bestPrice);
                     }
@@ -167,7 +168,7 @@ namespace engine::book
                           .instrumentId = instrumentId_,
                           .aggressorOrderId = cmd.orderId,
                           .aggressorClientId = cmd.clientId,
-                          .aggressorRemaining = remaining});
+                          .aggressorRemaining = remainingQty});
                 }
 
                 return;
