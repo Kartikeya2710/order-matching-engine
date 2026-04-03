@@ -3,11 +3,14 @@
 #include <unordered_map>
 #include "Command.hpp"
 #include "OrderPool.hpp"
+#include "TradeEvent.hpp"
 #include "PriceLevel.hpp"
 #include "ArrayBitMapLocator.hpp"
 
 namespace engine::book
 {
+    using EventCallback = std::function<void(const core::TradeEvent &)>;
+
     template <
         typename LevelLocator,
         size_t PoolCap = 32768,
@@ -19,6 +22,13 @@ namespace engine::book
         LevelLocator locator_;
         std::unordered_map<types::OrderId, uint32_t> index_;
         types::InstrumentId instrumentId_ = 0;
+        EventCallback onEvent_;
+
+        void emit(engine::core::TradeEvent ev) noexcept
+        {
+            if (onEvent_)
+                onEvent_(ev);
+        }
 
         // Run the match loop. Returns unfilled remainingQty quantity.
         // priceLimit is ignored for market orders (pass NO_PRICE).
@@ -57,6 +67,21 @@ namespace engine::book
                     passiveOrder.qty -= fillQty;
                     level.totalQty -= fillQty;
 
+                    emit({
+                        .type = fullFill
+                                    ? engine::core::TradeEvent::Type::Fill
+                                    : engine::core::TradeEvent::Type::PartialFill,
+                        .instrumentId = instrumentId_,
+                        .aggressorOrderId = cmd.orderId,
+                        .passiveOrderId = passive.orderId,
+                        .aggressorClientId = cmd.clientId,
+                        .passiveClientId = passive.clientId,
+                        .fillPrice = best,
+                        .fillQty = fillQty,
+                        .aggressorRemaining = remaining,
+                        .passiveRemaining = passive.qty,
+                    });
+
                     // exhausted the passive order
                     if (passiveOrder.qty == 0)
                     {
@@ -91,6 +116,12 @@ namespace engine::book
             locator_.markNonEmpty(cmd.verb, cmd.limitPrice);
 
             index_[cmd.orderId] = poolIdx;
+
+            emit({.type = engine::core::TradeEvent::Type::OrderAccepted,
+                  .instrumentId = instrumentId_,
+                  .aggressorOrderId = cmd.orderId,
+                  .aggressorClientId = cmd.clientId,
+                  .aggressorRemaining = qty});
 
             return true;
         }
@@ -132,7 +163,11 @@ namespace engine::book
                 types::Quantity remainingQty = matchAggressor(cmd);
                 if (remainingQty > 0)
                 {
-                    // market order is unfilled
+                    emit({.type = engine::core::TradeEvent::Type::OrderRejected,
+                          .instrumentId = instrumentId_,
+                          .aggressorOrderId = cmd.orderId,
+                          .aggressorClientId = cmd.clientId,
+                          .aggressorRemaining = remaining});
                 }
 
                 return;
@@ -141,7 +176,11 @@ namespace engine::book
             // Validate price before touching the book.
             if (!locator_.isInRange(cmd.limitPrice) || !locator_.isAligned(cmd.limitPrice))
             {
-                // limit price is invalid
+                emit({.type = engine::core::TradeEvent::Type::OrderRejected,
+                      .instrumentId = instrumentId_,
+                      .aggressorOrderId = cmd.orderId,
+                      .aggressorClientId = cmd.clientId});
+
                 return;
             }
 
@@ -160,11 +199,19 @@ namespace engine::book
             auto it = index_.find(cmd.orderId);
             if (it == index_.end())
             {
-                // reject the request
+                emit({.type = engine::core::TradeEvent::Type::OrderRejected,
+                      .instrumentId = instrumentId_,
+                      .aggressorOrderId = cmd.orderId,
+                      .aggressorClientId = cmd.clientId});
                 return;
             }
             uint32_t poolIdx = it->second;
             PoolOrder &order = pool_[poolIdx]; // get stored verb/price, NOT cmd fields
+
+            emit({.type = engine::core::TradeEvent::Type::OrderCancelled,
+                  .instrumentId = instrumentId_,
+                  .aggressorOrderId = cmd.orderId,
+                  .aggressorClientId = order.clientId});
 
             removeFromBook(order.orderId, poolIdx, order.verb, order.price);
         }
@@ -174,7 +221,11 @@ namespace engine::book
             auto it = index_.find(cmd.orderId);
             if (it == index_.end())
             {
-                // reject the request
+                emit({.type = engine::core::TradeEvent::Type::OrderRejected,
+                      .instrumentId = instrumentId_,
+                      .aggressorOrderId = cmd.orderId,
+                      .aggressorClientId = cmd.clientId});
+
                 return;
             }
 
