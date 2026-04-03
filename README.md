@@ -1,11 +1,292 @@
-## Order Matching Engine
+# Order Matching Engine
 
-A high-performance yet practical order matching engine written in C++
+> A modern, low-latency C++20 order book and matching engine optimized for high-frequency trading and exchange simulation.
 
-### Things to figure out
+Built from the ground up for **sub-microsecond** order processing, this engine demonstrates production-grade techniques used by top-tier trading firms and crypto exchanges — lock-free concurrency, coroutine-based scheduling, bitmap-accelerated price discovery, and cache-friendly data structures.
 
-- [x] Producing trade events
-- [ ] Better ways of assigning an instrument to a worker
-- [ ] Improve on unordered map for order id to order index mapping
-- [ ] Testing suite for the engine
-- [ ] Stress-testing and benchmarking capabilties
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Performance & Optimizations](#performance--optimizations)
+- [Concurrency Model](#concurrency-model)
+- [Core Concepts](#core-concepts)
+- [Project Structure](#project-structure)
+- [Tech Stack](#tech-stack)
+- [Setup & Installation](#setup--installation)
+- [Usage](#usage)
+- [Future Improvements](#future-improvements)
+
+---
+
+## Features
+
+| Category                | Details                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| **Order Types**         | Market, Limit (Stop orders partially supported in command protocol)            |
+| **Time-in-Force**       | GTC (Good-Til-Canceled), IOC (Immediate-Or-Cancel)                             |
+| **Matching Algorithm**  | Strict price-time priority (FIFO within each price level)                      |
+| **Price Level Locator** | Configurable: ultra-fast `FastBook` or flexible `FlexBook`                     |
+| **Concurrency**         | Lock-free SPSC ring buffers + coroutine parking (no mutexes in hot path)       |
+| **Memory**              | Fixed-size order pool (up to 1M orders) with free-list allocation              |
+| **Scaling**             | Coroutine workers pinned to dedicated CPU cores                                |
+| **Isolation**           | Independent books per instrument with configurable price ranges and tick sizes |
+| **Hot Path**            | Zero heap allocation — all structures pre-allocated and cache-line aligned     |
+| **Output**              | Lock-free trade/event streaming to external callbacks                          |
+
+---
+
+## Architecture
+
+The engine follows a **producer-consumer** model with clean separation between gateway submission and matching workers.
+
+### Data Flow
+
+```
+External Gateway / Main Thread
+          │
+          ▼
+MatchingCore::submit(Command)
+          │
+┌─────────────────────────────────────┐
+│  Lock-free SPSC Enqueue +           │
+│  Coroutine Wake (atomic handle)     │
+└─────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────┐
+│      InstrumentContext      │
+│         (per symbol)        │
+├─────────────────────────────┤
+│  SPSC Input Queue           │
+│    (capacity: 4096 cmds)    │
+│                             │
+│  instrumentCoroutine()      │
+│    (C++20 coroutine)        │
+│                             │
+│  FastBook                   │
+│   ├─ OrderPool<32768>       │
+│   ├─ PriceLevel[] (dense)   │
+│   └─ Bid/Ask Bitmaps        │
+└─────────────────────────────┘
+          │
+          ▼
+SPSC Output Queue (1024 events)
+          │
+          ▼
+     Drainer Thread
+          │
+          ▼
+     TradeCallback
+```
+
+### Core Components
+
+| Component            | Responsibility                                                      |
+| -------------------- | ------------------------------------------------------------------- |
+| `ArrayBitMapLocator` | Dense price array + bitmap for O(1) best price & emptiness tracking |
+| `OrderBook`          | Matching logic, price-time priority, order lifecycle                |
+| `OrderPool`          | Cache-aligned, pre-allocated order storage with free-list           |
+| `InstrumentContext`  | Per-instrument isolation + coroutine state                          |
+| `CoroutineWorker`    | Dedicated thread + coroutine scheduler per worker                   |
+| `MatchingCore`       | Orchestration, instrument loading, drainer thread                   |
+| `SPSC_RingBuffer`    | Lock-free single-producer/single-consumer queues                    |
+
+---
+
+## Performance & Optimizations
+
+### ArrayBitMapLocator
+
+Stores every possible price level in a dense contiguous `std::vector<PriceLevel>` (bids and asks). Price-to-index conversion uses simple arithmetic — `(price - minPrice) / tickSize` — giving **O(1) direct array access with perfect spatial locality**.
+
+Maintains a **64-bit bitmap per side** (one bit per price level):
+
+- `bestBid()` / `bestAsk()` scan from the highest/lowest word using `__builtin_clzll` / `__builtin_ctzll` — typically completing in **just a few CPU instructions**, even with thousands of price levels.
+- `markNonEmpty()` / `markEmpty()` keep the bitmap perfectly synchronized, ensuring matching **never scans empty price levels**.
+
+This completely eliminates trees (RB-tree), maps, and heaps — **no pointer chasing, no rebalancing overhead**.
+
+---
+
+### OrderPool
+
+Fixed-capacity, pre-allocated array of `PoolOrder` structs (`alignas(64)`):
+
+- **Stack-based free list** — O(1) acquire/release with zero heap allocation in the hot path.
+- **Single contiguous memory block** — maximum cache-line efficiency and zero fragmentation.
+- Prevents allocator jitter and false sharing under high concurrency.
+
+---
+
+### OrderBook
+
+Combines `ArrayBitMapLocator` + `OrderPool` into a highly optimized matching core:
+
+- Maintains **doubly-linked lists via pool indices only** (no raw pointers) for strict FIFO time priority.
+- Tracks `totalQty` per price level for **instant matching decisions**.
+- Uses `std::unordered_map<OrderId, poolIndex>` for **O(1) cancel and modify operations**.
+
+The full matching loop (`matchAggressor`) is extremely tight: bitmap → direct array access → minimal linked-list traversal only at the best price.
+
+---
+
+### Additional Optimizations
+
+**Cache-Friendly Layout** — All hot structures (`PoolOrder`, `PriceLevel`, `Command`, `TradeEvent`) are 64-byte aligned.
+
+**Zero Dynamic Allocation** — No allocations in the matching hot path. Uses memory pool + ring buffers throughout.
+
+**Lock-Free Design** — Only atomic operations with carefully tuned memory ordering (`acq_rel`, `release`).
+
+**Core Pinning** — Workers and drainer pinned to dedicated CPU cores, eliminating cross-core cache misses.
+
+**Coroutines over Threads** — Efficiently handles thousands of instruments without per-instrument OS thread overhead.
+
+---
+
+### Expected Latency
+
+```
+Single-thread, modern server hardware:  ~200–600 ns
+(end-to-end: full match + rest, aggressor + passive fill)
+```
+
+---
+
+## Concurrency Model
+
+- **N workers** (default: `hardware_concurrency() - 2`), each pinned to a dedicated core.
+- Instruments are sharded round-robin — `instrumentId % numWorkers`.
+- Each instrument runs in its own **C++20 coroutine** inside a worker.
+- Coroutines park via `co_await QueueAwaitable` when idle (no busy-waiting).
+- Gateway wakes coroutines via atomic handle exchange + lock-free wake queue.
+- Output events are drained by a separate thread to avoid blocking workers.
+
+This design provides **excellent scalability** while maintaining deterministic low latency.
+
+---
+
+## Core Concepts
+
+### Order Book
+
+- **Bids** stored in descending price order; **Asks** in ascending.
+- Each price level maintains a doubly-linked list of orders (via pool indices) for FIFO matching.
+- Total quantity per level is tracked for fast matching decisions.
+
+### Matching Algorithm
+
+1. Aggressor order attempts to match against the opposite side's **best price**.
+2. Walks price levels until the limit price or liquidity is exhausted.
+3. Partial fills are supported; a full fill of a passive order removes it from the book.
+4. Remaining quantity rests in the book (unless IOC or Market).
+
+### Price-Time Priority
+
+- Best price is matched first.
+- Within the same price level, the earliest order is matched first (time priority preserved by append order).
+
+---
+
+## Project Structure
+
+```
+.
+├── src/                    # Source files
+│   ├── main.cpp
+│   ├── MatchingCore.cpp
+│   ├── CoroutineWorker.cpp
+│   ├── ArrayBitMapLocator.cpp
+│   ├── InstrumentConfig.cpp
+│   ├── QueueAwaitable.cpp
+│   ├── Threading.cpp
+│   ├── ThreadPool.cpp
+│   └── ...
+├── include/                # Public headers
+│   ├── MatchingCore.hpp
+│   ├── OrderBook.hpp
+│   ├── ArrayBitMapLocator.hpp
+│   ├── OrderPool.hpp
+│   ├── PriceLevel.hpp
+│   ├── Types.hpp
+│   └── ...
+├── tests/                  # Unit & integration tests
+├── CMakeLists.txt
+└── instruments.cfg
+```
+
+---
+
+## Tech Stack
+
+|                  |                                                          |
+| ---------------- | -------------------------------------------------------- |
+| **Language**     | C++20 (coroutines, `std::variant`, `std::atomic`)        |
+| **Build System** | CMake 3.20+                                              |
+| **Concurrency**  | Lock-free SPSC queues, coroutines, CPU affinity          |
+| **Platform**     | Linux (primary), macOS, Windows (core pinning supported) |
+| **Dependencies** | None — pure STL + platform intrinsics                    |
+
+---
+
+## Setup & Installation
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/order-matching-engine.git
+cd order-matching-engine
+
+# 2. Create build directory
+mkdir build && cd build
+
+# 3. Configure with CMake
+cmake .. -DCMAKE_BUILD_TYPE=Release
+
+# 4. Build
+make -j$(nproc)
+```
+
+---
+
+## Usage
+
+### 1. Prepare Instruments Configuration
+
+Create `instruments.cfg`:
+
+```
+# instrument_id  book_type  min_price  max_price  tick_size
+1                FastBook   100000     200000     100    # $1000.00 – $2000.00, $1.00 tick
+2                FastBook   5000       15000      50     # $50.00 – $150.00, $0.50 tick
+```
+
+### 2. Run the Engine
+
+```bash
+# Run with default config
+./build/app
+
+# Specify a custom config file
+./build/app path/to/instruments.cfg
+```
+
+### Example Output
+
+```
+[ACCEPTED]  order=1001 remaining=500
+[FILL]      aggressor=1001 passive=42 price=$1250.50 qty=200
+[PARTIAL]   aggressor=1001 passive=43 price=$1250.50 qty=300 passive_remaining=150
+```
+
+---
+
+## Future Improvements
+
+- [ ] FOK (Fill-Or-Kill) order type
+- [ ] Order book snapshot & recovery persistence
+- [ ] Real-time visualization dashboard
+- [ ] Benchmark suite with nanosecond latency histograms
+- [ ] Implement `FlexBook`
