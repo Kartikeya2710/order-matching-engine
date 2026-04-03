@@ -7,3 +7,5 @@ A high-performance yet practical order matching engine written in C++
 - [x] Producing trade events
 - [ ] Better ways of assigning an instrument to a worker
 - [ ] Improve on unordered map for order id to order index mapping
+- [ ] Testing suite for the engine
+- [ ] Stress-testing and benchmarking capabilties
