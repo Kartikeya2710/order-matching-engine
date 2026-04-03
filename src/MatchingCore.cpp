@@ -1,6 +1,4 @@
 #include "MatchingCore.hpp"
-#include "InstrumentConfig.hpp"
-#include <variant>
 
 namespace engine
 {
@@ -23,6 +21,11 @@ namespace engine
         }
     }
 
+    void MatchingCore::setTradeCallback(TradeCallback cb)
+    {
+        tradeCallback_ = std::move(cb);
+    }
+
     void MatchingCore::addInstrument(InstrumentConfig cfg)
     {
         types::InstrumentId id = cfg.instrumentId;
@@ -35,12 +38,17 @@ namespace engine
 
     void MatchingCore::start()
     {
+        drainerRunning_.store(true, std::memory_order_relaxed);
+        drainerThread_ = std::thread(&MatchingCore::drainerLoop, this);
         pool_->startAll();
     }
 
     void MatchingCore::stop()
     {
         pool_->stopAll();
+        drainerRunning_.store(false, std::memory_order_release);
+        if (drainerThread_.joinable())
+            drainerThread_.join();
     }
 
     bool MatchingCore::submit(engine::core::Command cmd) noexcept
@@ -72,4 +80,33 @@ namespace engine
                           it->second->book);
     }
 
+    void MatchingCore::drainerLoop() noexcept
+    {
+        engine::core::TradeEvent ev;
+
+        while (drainerRunning_.load(std::memory_order_relaxed))
+        {
+            bool anyWork = false;
+            for (auto &[id, ctx] : contexts_)
+            {
+                while (ctx->outputQueue.dequeue(ev))
+                {
+                    anyWork = true;
+                    if (tradeCallback_)
+                        tradeCallback_(ev);
+                }
+            }
+            if (!anyWork)
+                CPU_RELAX();
+        }
+
+        for (auto &[id, ctx] : contexts_)
+        {
+            while (ctx->outputQueue.dequeue(ev))
+            {
+                if (tradeCallback_)
+                    tradeCallback_(ev);
+            }
+        }
+    }
 }

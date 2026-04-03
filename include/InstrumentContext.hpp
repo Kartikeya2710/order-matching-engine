@@ -4,6 +4,7 @@
 #include "Threading.hpp"
 #include "RingBuffer.hpp"
 #include "InstrumentConfig.hpp"
+#include "InstrumentContext.hpp"
 #include <atomic>
 #include <variant>
 #include <coroutine>
@@ -15,7 +16,8 @@ namespace engine
 
     struct alignas(64) InstrumentContext
     {
-        utils::SPSC_RingBuffer<engine::core::Command, 4096> inputQueue;
+        utils::SPSC_RingBuffer<core::Command, 4096> inputQueue;
+        utils::SPSC_RingBuffer<core::TradeEvent, 1024> outputQueue;
 
         types::InstrumentId instrumentId = 0;
         BookVariant book;

@@ -3,6 +3,8 @@
 #include "InstrumentContext.hpp"
 #include "ArrayBitMapLocator.hpp"
 #include "InstrumentConfig.hpp"
+#include "Threading.hpp"
+#include "TradeEvent.hpp"
 #include <unordered_map>
 #include <thread>
 #include <memory>
@@ -15,6 +17,8 @@ namespace engine
     class MatchingCore
     {
     public:
+        using TradeCallback = std::function<void(const engine::core::TradeEvent &)>;
+
         struct Config
         {
             size_t numWorkers;
@@ -34,6 +38,8 @@ namespace engine
 
         void addInstrument(InstrumentConfig cfg);
 
+        void setTradeCallback(TradeCallback cb);
+
         void start();
 
         void stop();
@@ -47,6 +53,10 @@ namespace engine
 
     private:
         void drainerLoop() noexcept;
+
+        std::thread drainerThread_;
+        std::atomic<bool> drainerRunning_{false};
+        TradeCallback tradeCallback_;
 
         Config cfg_;
 
