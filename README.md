@@ -42,7 +42,7 @@ Built from the ground up for **sub-microsecond** order processing, this engine d
 ![one worker results for macbook air M2](report/dashboard_b_w4.png)
 [Full benchmark report for 4 workers](./report/report_b_w4.html)
 
-**_NOTE_**: A total of 244 instruments have been used as in the `instruments.cfg` file. The following configurations have been used for benchmarking:
+**_NOTE_**: A total of 24 instruments have been used as in the `instruments.cfg` file. The following configurations have been used for benchmarking:
 
 ```cmd
 python3 gen_commands.py -n 50000 --duration-ms 10000 --seed 42
