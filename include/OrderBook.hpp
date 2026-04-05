@@ -252,6 +252,8 @@ namespace engine::book
         types::Price bestAsk() const noexcept { return locator_.bestAsk(); }
         uint32_t poolFreeCount() const noexcept { return pool_.freeCount(); }
         size_t openOrders() const noexcept { return index_.size(); }
+
+        void setEventCallback(EventCallback cb) noexcept { onEvent_ = std::move(cb); }
     };
 
     using FastBook = OrderBook<ArrayBitMapLocator, 32768, 65536>;

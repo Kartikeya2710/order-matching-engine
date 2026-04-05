@@ -37,6 +37,11 @@ namespace engine
                       throw std::runtime_error("Unsupported BookType");
               } }())
         {
+            std::visit([this](auto &b)
+                       { b.setEventCallback([this](const core::TradeEvent &ev) noexcept
+                                            {
+                    core::TradeEvent copy = ev;
+                    (void)this->outputQueue.enqueue(std::move(copy)); }); }, book);
         }
 
         InstrumentContext(const InstrumentContext &) = delete;
