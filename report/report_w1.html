@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Order Matching Engine — Simulation Report</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Outfit:wght@400;700;900&display=swap');
+
+  :root {
+    --bg: #0a0e17;
+    --panel: #0f1520;
+    --grid: #1a2332;
+    --text: #c8d6e5;
+    --text-dim: #546e7a;
+    --accent: #e8eaf6;
+    --green: #00e676;
+    --red: #ef5350;
+    --yellow: #ffa726;
+    --blue: #42a5f5;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    padding: 40px 20px;
+    line-height: 1.6;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+
+  header { margin-bottom: 30px; }
+  h1 {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 900;
+    font-size: 32px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .subtitle { color: var(--text-dim); font-size: 13px; }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin: 30px 0;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    padding: 18px;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+  .stat-value {
+    font-family: 'Outfit', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .stat-value.green { color: var(--green); }
+  .stat-value.yellow { color: var(--yellow); }
+  .stat-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .section {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .section-title {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--grid);
+    padding-bottom: 8px;
+  }
+
+  .dashboard-img {
+    width: 100%;
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    display: block;
+  }
+
+  table {
+    width: 100%;
+    font-size: 12px;
+    border-collapse: collapse;
+  }
+  td { padding: 6px 12px; border-bottom: 1px solid var(--grid); }
+  td.label { color: var(--text-dim); width: 40%; }
+  td.val { color: var(--text); font-weight: 600; text-align: right; }
+  td.val.green { color: var(--green); }
+  td.val.yellow { color: var(--yellow); }
+  td.val.red { color: var(--red); }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--grid);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>ORDER MATCHING ENGINE</h1>
+  <div class="subtitle">PERFORMANCE BENCHMARK REPORT · generated 2026-04-05 23:11:26</div>
+</header>
+
+<div class="stats-grid">
+  <div class="stat">
+    <div class="stat-label">THROUGHPUT</div>
+    <div class="stat-value green">4.9K</div>
+    <div class="stat-sub">commands / second</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">SUBMIT P50</div>
+    <div class="stat-value">125ns</div>
+    <div class="stat-sub">gateway enqueue median</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">SUBMIT P99</div>
+    <div class="stat-value yellow">459ns</div>
+    <div class="stat-sub">tail latency</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">TURNOVER</div>
+    <div class="stat-value">₹158.30 Cr</div>
+    <div class="stat-sub">notional traded</div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">PERFORMANCE DASHBOARD</div>
+  <img class="dashboard-img" src="dashboard_w1.png" alt="dashboard">
+</div>
+
+<div class="two-col">
+
+  <div class="section">
+    <div class="section-title">SUBMIT LATENCY (GATEWAY ENQUEUE)</div>
+    <table>
+      <tr><td class="label">count</td><td class="val ">50.0K</td></tr>
+      <tr><td class="label">mean</td><td class="val ">134ns</td></tr>
+      <tr><td class="label">std dev</td><td class="val ">1.3μs</td></tr>
+      <tr><td class="label">p50</td><td class="val green">125ns</td></tr>
+      <tr><td class="label">p90</td><td class="val ">167ns</td></tr>
+      <tr><td class="label">p95</td><td class="val yellow">209ns</td></tr>
+      <tr><td class="label">p99</td><td class="val yellow">459ns</td></tr>
+      <tr><td class="label">p99.9</td><td class="val red">3.2μs</td></tr>
+      <tr><td class="label">min</td><td class="val ">0ns</td></tr>
+      <tr><td class="label">max</td><td class="val red">275.0μs</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">END-TO-END LATENCY</div>
+    <table>
+      <tr><td class="label">count</td><td class="val ">28.5K</td></tr>
+      <tr><td class="label">mean</td><td class="val ">9.8μs</td></tr>
+      <tr><td class="label">std dev</td><td class="val ">312.9μs</td></tr>
+      <tr><td class="label">p50</td><td class="val green">583ns</td></tr>
+      <tr><td class="label">p90</td><td class="val ">1.3μs</td></tr>
+      <tr><td class="label">p95</td><td class="val yellow">2.0μs</td></tr>
+      <tr><td class="label">p99</td><td class="val yellow">6.9μs</td></tr>
+      <tr><td class="label">p99.9</td><td class="val red">2.04ms</td></tr>
+      <tr><td class="label">min</td><td class="val ">209ns</td></tr>
+      <tr><td class="label">max</td><td class="val red">28.38ms</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">EVENT BREAKDOWN</div>
+    <table>
+      <tr><td class="label">total events</td><td class="val ">55.4K</td></tr>
+      <tr><td class="label">fills</td><td class="val green">8.0K</td></tr>
+      <tr><td class="label">partial fills</td><td class="val green">8.8K</td></tr>
+      <tr><td class="label">accepted</td><td class="val ">20.9K</td></tr>
+      <tr><td class="label">cancelled</td><td class="val yellow">5.9K</td></tr>
+      <tr><td class="label">rejected</td><td class="val red">11.8K</td></tr>
+      <tr><td class="label">volume (qty)</td><td class="val ">870.9K</td></tr>
+      <tr><td class="label">turnover</td><td class="val green">₹158.30 Cr</td></tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">CONFIGURATION</div>
+    <table>
+      <tr><td class="label">mode</td><td class="val ">realtime</td></tr>
+      <tr><td class="label">workers</td><td class="val ">1</td></tr>
+      <tr><td class="label">snapshot interval</td><td class="val ">100 ms</td></tr>
+      <tr><td class="label">depth levels</td><td class="val ">10</td></tr>
+      <tr><td class="label">instruments</td><td class="val ">24</td></tr>
+      <tr><td class="label">total commands</td><td class="val ">50.0K</td></tr>
+      <tr><td class="label">sim time</td><td class="val ">10305.0 ms</td></tr>
+    </table>
+  </div>
+
+</div>
+
+<footer>
+  metrics measured directly from engine::MatchingCore hot path<br>
+  generated by visualize.py
+</footer>
+
+</div>
+</body>
+</html>
