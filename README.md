@@ -26,21 +26,21 @@ Built from the ground up for **sub-microsecond** order processing, this engine d
 
 ### Macbook Air M2 (8 GB RAM)
 
-#### 1. Realtime workload with 1 worker
+#### 1. Burst workload with 1 worker
 
-![one worker results for macbook air M2](report/dashboard_w1.png)
+![one worker results for macbook air M2](report/dashboard_b_w1.png)
 
-[Full benchmark report for 1 worker](./report/report_w1.html)
+[Full benchmark report for 1 worker](./report/report_b_w1.html)
 
-#### 2. Realtime workload with 2 workers
+#### 2. Burst workload with 2 workers
 
-![one worker results for macbook air M2](report/dashboard_w2.png)
-[Full benchmark report for 2 workers](./report/report_w2.html)
+![one worker results for macbook air M2](report/dashboard_b_w2.png)
+[Full benchmark report for 2 workers](./report/report_b_w2.html)
 
-#### 3. Realtime workload with 4 workers
+#### 3. Burst workload with 4 workers
 
-![one worker results for macbook air M2](report/dashboard_w4.png)
-[Full benchmark report for 4 workers](./report/report_w4.html)
+![one worker results for macbook air M2](report/dashboard_b_w4.png)
+[Full benchmark report for 4 workers](./report/report_b_w4.html)
 
 **_NOTE_**: A total of 244 instruments have been used as in the `instruments.cfg` file. The following configurations have been used for benchmarking:
 
