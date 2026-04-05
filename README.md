@@ -348,6 +348,6 @@ python3 visualize.py --input sim_results.json --output-dir report --dashboard-na
 
 - [ ] FOK (Fill-Or-Kill) order type
 - [ ] Order book snapshot & recovery persistence
-- [ ] Real-time visualization dashboard
-- [ ] Benchmark suite with nanosecond latency histograms
+- [x] Real-time visualization dashboard
+- [x] Benchmark suite with nanosecond latency histograms
 - [ ] Implement `FlexBook`
