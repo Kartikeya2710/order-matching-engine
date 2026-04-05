@@ -259,8 +259,8 @@ Create `instruments.cfg`:
 
 ```
 # instrument_id  book_type  min_price  max_price  tick_size
-1                FastBook   100000     200000     100    # $1000.00 – $2000.00, $1.00 tick
-2                FastBook   5000       15000      50     # $50.00 – $150.00, $0.50 tick
+1                FastBook   100000     200000     100
+2                FastBook   5000       15000      50
 ```
 
 ### 2. Run the Engine
@@ -275,10 +275,64 @@ Create `instruments.cfg`:
 
 ### Example Output
 
-```
+```sh
 [ACCEPTED]  order=1001 remaining=500
-[FILL]      aggressor=1001 passive=42 price=$1250.50 qty=200
-[PARTIAL]   aggressor=1001 passive=43 price=$1250.50 qty=300 passive_remaining=150
+[FILL]      aggressor=1001 passive=42 price=Rs1250.50 qty=200
+[PARTIAL]   aggressor=1001 passive=43 price=Rs1250.50 qty=300 passive_remaining=150
+```
+
+### Generating a Workload
+
+```bash
+python3 gen_commands.py -n 50000 --duration-ms 10000 --seed 42 \
+                        --instruments instruments.cfg -o commands.csv
+```
+
+Options:
+
+- `-n / --num-commands` — total commands to generate
+- `--duration-ms` — timestamps span this duration (used by --realtime mode)
+- `--seed` — RNG seed for reproducible workloads
+- `--instruments` — instruments config file
+
+### Running the Simulation
+
+```bash
+# Burst mode (feed as fast as possible → measures peak throughput)
+./sim_runner --commands commands.csv --instruments instruments.cfg \
+             --output sim_results.json --burst --workers 2
+
+# Realtime mode (respect timestamps; scale with --speed)
+./sim_runner --commands commands.csv --realtime --speed 1.0
+
+# Live TUI dashboard (updates every ~80ms during the run)
+./sim_runner --commands commands.csv --burst --tui
+
+# Watch a specific instrument's book, 20-level depth, 50ms snapshots
+./sim_runner --commands commands.csv --burst \
+             --watch 1 --depth 20 --snapshot-ms 50
+```
+
+```bash
+Usage: simulator [options]
+
+Options:
+--commands FILE Input CSV file (default: commands.csv)
+--instruments FILE Instrument config file (default: instruments.cfg)
+--output FILE JSON output file (default: sim_results.json)
+
+--burst Feed ASAP for max throughput
+--realtime Respect CSV timestamps
+--speed N Realtime speed multiplier (default: 1.0)
+
+--snapshot-ms N Book snapshot interval in ms (0 = off) (default: 100)
+--depth N Depth levels per snapshot (default: 10)
+--watch ID Snapshot only this instrument (0 = all) (default: 0)
+
+--workers N Engine worker threads (default: 2)
+--first-core N First CPU core for pinning (default: 2)
+
+--tui Enable live ANSI dashboard
 ```
 
 ---
