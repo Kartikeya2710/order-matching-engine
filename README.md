@@ -193,7 +193,7 @@ This design provides **excellent scalability** while maintaining deterministic l
 
 ## Project Structure
 
-```
+```sh
 .
 ├── src/                    # Source files
 │   ├── main.cpp
@@ -257,45 +257,29 @@ make -j$(nproc)
 
 Create `instruments.cfg`:
 
-```
+```sh
 # instrument_id  book_type  min_price  max_price  tick_size
 1                FastBook   100000     200000     100
 2                FastBook   5000       15000      50
 ```
 
-### 2. Run the Engine
-
-```bash
-# Run with default config
-./build/app
-
-# Specify a custom config file
-./build/app path/to/instruments.cfg
-```
-
-### Example Output
-
-```sh
-[ACCEPTED]  order=1001 remaining=500
-[FILL]      aggressor=1001 passive=42 price=Rs1250.50 qty=200
-[PARTIAL]   aggressor=1001 passive=43 price=Rs1250.50 qty=300 passive_remaining=150
-```
-
-### Generating a Workload
+### 2. Generating a Workload
 
 ```bash
 python3 gen_commands.py -n 50000 --duration-ms 10000 --seed 42 \
                         --instruments instruments.cfg -o commands.csv
 ```
 
-Options:
+#### Options
 
-- `-n / --num-commands` — total commands to generate
-- `--duration-ms` — timestamps span this duration (used by --realtime mode)
-- `--seed` — RNG seed for reproducible workloads
-- `--instruments` — instruments config file
+| Flag                   | Argument | Default | Description                                                            |
+| :--------------------- | :------- | :------ | :--------------------------------------------------------------------- |
+| `-n`, `--num-commands` | `N`      | —       | Total number of commands to generate.                                  |
+| `--duration-ms`        | `N`      | —       | Total duration the timestamps should span (used by `--realtime` mode). |
+| `--seed`               | `N`      | —       | RNG seed for generating reproducible workloads.                        |
+| `--instruments`        | `FILE`   | —       | Path to the instruments configuration file.                            |
 
-### Running the Simulation
+### 3. Running the Simulation
 
 ```bash
 # Burst mode (feed as fast as possible → measures peak throughput)
@@ -313,27 +297,22 @@ Options:
              --watch 1 --depth 20 --snapshot-ms 50
 ```
 
-```bash
-Usage: simulator [options]
+#### Options
 
-Options:
---commands FILE Input CSV file (default: commands.csv)
---instruments FILE Instrument config file (default: instruments.cfg)
---output FILE JSON output file (default: sim_results.json)
-
---burst Feed ASAP for max throughput
---realtime Respect CSV timestamps
---speed N Realtime speed multiplier (default: 1.0)
-
---snapshot-ms N Book snapshot interval in ms (0 = off) (default: 100)
---depth N Depth levels per snapshot (default: 10)
---watch ID Snapshot only this instrument (0 = all) (default: 0)
-
---workers N Engine worker threads (default: 2)
---first-core N First CPU core for pinning (default: 2)
-
---tui Enable live ANSI dashboard
-```
+| Flag            | Argument | Default            | Description                                       |
+| :-------------- | :------- | :----------------- | :------------------------------------------------ |
+| `--commands`    | `FILE`   | `commands.csv`     | Input CSV file containing simulator instructions. |
+| `--instruments` | `FILE`   | `instruments.cfg`  | Configuration file for instrument definitions.    |
+| `--output`      | `FILE`   | `sim_results.json` | Destination for the final simulation results.     |
+| `--burst`       | —        | —                  | **Enable** ASAP feeding for maximum throughput.   |
+| `--realtime`    | —        | —                  | Enable processing based on CSV timestamps.        |
+| `--speed`       | `N`      | `1.0`              | Multiplier for playback speed in realtime mode.   |
+| `--snapshot-ms` | `N`      | `100`              | Book snapshot interval in ms (`0` to disable).    |
+| `--depth`       | `N`      | `10`               | Number of depth levels per snapshot.              |
+| `--watch`       | `ID`     | `0`                | Monitor a specific instrument ID (`0` for all).   |
+| `--workers`     | `N`      | `2`                | Number of engine worker threads to spawn.         |
+| `--first-core`  | `N`      | `2`                | The starting CPU core ID for thread pinning.      |
+| `--tui`         | —        | —                  | Launch the live ANSI-based dashboard.             |
 
 ---
 
