@@ -17,9 +17,8 @@ namespace engine
 
         if (rc != 0)
         {
-            throw std::runtime_error(
-                "Failed to pin to core " + std::to_string(core) +
-                " (rc=" + std::to_string(rc) + ")");
+            std::cerr << "Warning: Could not pin thread to core " << core
+                      << " (rc=" << rc << "), continuing unpinned\n";
         }
 
 #elif defined(PLATFORM_MACOS)
