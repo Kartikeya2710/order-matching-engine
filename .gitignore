@@ -56,3 +56,9 @@ compile_commands.json
 
 # VSCode
 .vscode/
+
+# Generated commands
+commands.csv
+
+# Compressed zip files
+*.zip
