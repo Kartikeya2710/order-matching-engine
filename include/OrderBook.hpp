@@ -86,7 +86,7 @@ namespace engine::book
                     // exhausted the passive order
                     if (fulfill)
                     {
-                        removeFromBook(passiveOrder.qty, passivePoolIdx, passiveSide, bestPrice);
+                        removeFromBook(passiveOrder.orderId, passivePoolIdx, passiveSide, bestPrice);
                     }
                 }
             }
@@ -103,10 +103,10 @@ namespace engine::book
 
             pool_[poolIdx] = PoolOrder{
                 .orderId = cmd.orderId,
+                .verb = cmd.verb,
                 .clientId = cmd.clientId,
                 .price = cmd.limitPrice,
                 .qty = qty,
-                .verb = cmd.verb,
                 .tif = cmd.tif,
                 .next = NULL_IDX,
                 .prev = NULL_IDX,
