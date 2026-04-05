@@ -8,6 +8,7 @@ Built from the ground up for **sub-microsecond** order processing, this engine d
 
 ## Table of Contents
 
+- [Results](#results)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Performance & Optimizations](#performance--optimizations)
@@ -20,6 +21,36 @@ Built from the ground up for **sub-microsecond** order processing, this engine d
 - [Future Improvements](#future-improvements)
 
 ---
+
+## Results
+
+### Macbook Air M2 (8 GB RAM)
+
+#### 1. Realtime workload with 1 worker
+
+![one worker results for macbook air M2](report/dashboard_w1.png)
+
+[Full benchmark report for 1 worker](./report/report_w1.html)
+
+#### 2. Realtime workload with 2 workers
+
+![one worker results for macbook air M2](report/dashboard_w2.png)
+[Full benchmark report for 2 workers](./report/report_w2.html)
+
+#### 3. Realtime workload with 4 workers
+
+![one worker results for macbook air M2](report/dashboard_w4.png)
+[Full benchmark report for 4 workers](./report/report_w4.html)
+
+**_NOTE_**: A total of 244 instruments have been used as in the `instruments.cfg` file. The following configurations have been used for benchmarking:
+
+```cmd
+python3 gen_commands.py -n 50000 --duration-ms 10000 --seed 42
+
+# w1 means 1 worker
+python3 visualize.py --input sim_results.json --output-dir report
+--dashboard-name dashboard_w1.png --report-name report_w1.html
+```
 
 ## Features
 
@@ -144,15 +175,6 @@ The full matching loop (`matchAggressor`) is extremely tight: bitmap → direct 
 **Core Pinning** — Workers and drainer pinned to dedicated CPU cores, eliminating cross-core cache misses.
 
 **Coroutines over Threads** — Efficiently handles thousands of instruments without per-instrument OS thread overhead.
-
----
-
-### Expected Latency
-
-```
-Single-thread, modern server hardware:  ~200–600 ns
-(end-to-end: full match + rest, aggressor + passive fill)
-```
 
 ---
 
@@ -313,6 +335,12 @@ python3 gen_commands.py -n 50000 --duration-ms 10000 --seed 42 \
 | `--workers`     | `N`      | `2`                | Number of engine worker threads to spawn.         |
 | `--first-core`  | `N`      | `2`                | The starting CPU core ID for thread pinning.      |
 | `--tui`         | —        | —                  | Launch the live ANSI-based dashboard.             |
+
+### 4. Report Generation
+
+```bash
+python3 visualize.py --input sim_results.json --output-dir report --dashboard-name dashboard_wn.png --report-name report_wn.html
+```
 
 ---
 
