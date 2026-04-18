@@ -13,8 +13,7 @@ namespace engine::book
 
     template <
         typename LevelLocator,
-        size_t PoolCap = 32768,
-        size_t IndexCap = 65536>
+        size_t PoolCap = 32768>
     class OrderBook
     {
     private:
@@ -256,5 +255,5 @@ namespace engine::book
         void setEventCallback(EventCallback cb) noexcept { onEvent_ = std::move(cb); }
     };
 
-    using FastBook = OrderBook<ArrayBitMapLocator, 32768, 65536>;
+    using FastBook = OrderBook<ArrayBitMapLocator, 32768>;
 }
