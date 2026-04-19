@@ -65,7 +65,7 @@ You can find the detailed design here:
 | Category                | Details                                                                        |
 | ----------------------- | ------------------------------------------------------------------------------ |
 | **Order Types**         | Market, Limit (Stop orders partially supported in command protocol)            |
-| **Time-in-Force**       | GTC (Good-Til-Canceled), IOC (Immediate-Or-Cancel)                             |
+| **Time-in-Force**       | GTC (Good-Til-Canceled), IOC (Immediate-Or-Cancel), FOK (Fill-Or-Kill)         |
 | **Matching Algorithm**  | Strict price-time priority (FIFO within each price level)                      |
 | **Price Level Locator** | Configurable: ultra-fast `FastBook` or flexible `FlexBook`                     |
 | **Concurrency**         | Lock-free SPSC ring buffers + coroutine parking (no mutexes in hot path)       |
@@ -123,15 +123,18 @@ SPSC Output Queue (1024 events)
 
 ### Core Components
 
-| Component            | Responsibility                                                      |
-| -------------------- | ------------------------------------------------------------------- |
-| `ArrayBitMapLocator` | Dense price array + bitmap for O(1) best price & emptiness tracking |
-| `OrderBook`          | Matching logic, price-time priority, order lifecycle                |
-| `OrderPool`          | Cache-aligned, pre-allocated order storage with free-list           |
-| `InstrumentContext`  | Per-instrument isolation + coroutine state                          |
-| `CoroutineWorker`    | Dedicated thread + coroutine scheduler per worker                   |
-| `MatchingCore`       | Orchestration, instrument loading, drainer thread                   |
-| `SPSC_RingBuffer`    | Lock-free single-producer/single-consumer queues                    |
+| Component            | Responsibility                                                       |
+| -------------------- | -------------------------------------------------------------------- |
+| `ArrayBitMapLocator` | Dense price array + bitmap for O(1) best price & emptiness tracking  |
+| `OrderBook`          | Matching logic, price-time priority, order lifecycle                 |
+| `OrderPool`          | Cache-aligned, pre-allocated order storage with free-list            |
+| `InstrumentContext`  | Per-instrument isolation + coroutine state                           |
+| `CoroutineWorker`    | Dedicated thread + coroutine scheduler per worker                    |
+| `MatchingCore`       | Orchestration, instrument loading, drainer thread                    |
+| `SPSC_RingBuffer`    | Lock-free single-producer/single-consumer queues                     |
+| `OrderIndex`         | Fixed-capacity open-addressing hash map with backward shift deletion |
+| `PriceLevel`         | The flat linked list node being stored in the Order Pool             |
+| `RingBuffer`         | Single Producer Single Consumer queue with move semantics            |
 
 ---
 
@@ -157,6 +160,7 @@ Fixed-capacity, pre-allocated array of `PoolOrder` structs (`alignas(64)`):
 - **Stack-based free list** — O(1) acquire/release with zero heap allocation in the hot path.
 - **Single contiguous memory block** — maximum cache-line efficiency and zero fragmentation.
 - Prevents allocator jitter and false sharing under high concurrency.
+- Uses an open-addressing, backward-shift deleting hash map for mapping order ids to their indices in the order pool
 
 ---
 
@@ -212,7 +216,7 @@ This design provides **excellent scalability** while maintaining deterministic l
 1. Aggressor order attempts to match against the opposite side's **best price**.
 2. Walks price levels until the limit price or liquidity is exhausted.
 3. Partial fills are supported; a full fill of a passive order removes it from the book.
-4. Remaining quantity rests in the book (unless IOC or Market).
+4. Remaining quantity rests in the book (unless IOC, FOK or Market).
 
 ### Price-Time Priority
 
