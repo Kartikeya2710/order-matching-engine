@@ -354,7 +354,7 @@ python3 visualize.py --input sim_results.json --output-dir report --dashboard-na
 
 ## Future Improvements
 
-- [ ] FOK (Fill-Or-Kill) order type
+- [x] FOK (Fill-Or-Kill) order type
 - [ ] Order book snapshot & recovery persistence
 - [ ] Generate Level 1 and 2 market data
 - [x] Real-time visualization dashboard
