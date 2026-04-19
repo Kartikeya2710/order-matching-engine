@@ -57,7 +57,7 @@ namespace engine
         if (__builtin_expect(it == contexts_.end(), 0))
             return false; // unknown instrument
 
-        return gatewayEnqueue(it->second.get(), std::move(cmd));
+        return dispatchToContext(it->second.get(), std::move(cmd));
     }
 
     types::Price MatchingCore::bestBid(types::InstrumentId id) const noexcept

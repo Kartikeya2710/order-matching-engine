@@ -48,8 +48,8 @@ namespace engine
         InstrumentContext &operator=(const InstrumentContext &) = delete;
     };
 
-    inline bool gatewayEnqueue(InstrumentContext *ctx,
-                               core::Command cmd) noexcept
+    inline bool dispatchToContext(InstrumentContext *ctx,
+                                  core::Command cmd) noexcept
     {
         if (!ctx->inputQueue.enqueue(std::move(cmd)))
             return false; // queue full
