@@ -32,6 +32,41 @@ namespace engine::book
                 onEvent_(ev);
         }
 
+        bool canFullyFill(const engine::core::Command &cmd) noexcept
+        {
+            const bool isBuy = (cmd.verb == types::Verb::Buy);
+            const types::Verb passiveSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
+            types::Quantity remainingQty = cmd.qty;
+
+            types::Price bestPrice = isBuy ? locator_.bestAsk() : locator_.bestBid();
+
+            while (remainingQty > 0 && bestPrice != NO_PRICE)
+            {
+                if (cmd.limitPrice != NO_PRICE)
+                {
+                    if ((isBuy && bestPrice > cmd.limitPrice) ||
+                        (!isBuy && bestPrice < cmd.limitPrice))
+                        break;
+                }
+
+                PriceLevel &level = locator_.getPriceLevel(passiveSide, bestPrice);
+
+                uint32_t idx = level.head;
+                while (remainingQty > 0 && idx != NULL_IDX)
+                {
+                    PoolOrder &order = pool_[idx];
+                    remainingQty -= std::min(remainingQty, order.qty);
+                    idx = order.next;
+                }
+
+                bestPrice = isBuy
+                                ? locator_.nextAsk(bestPrice)
+                                : locator_.nextBid(bestPrice);
+            }
+
+            return remainingQty == 0;
+        }
+
         // Run the match loop. Returns unfilled remainingQty quantity.
         // priceLimit is ignored for market orders (pass NO_PRICE).
         types::Quantity matchAggressor(const engine::core::Command &cmd) noexcept
@@ -179,6 +214,17 @@ namespace engine::book
 
             // Validate price before touching the book.
             if (!locator_.isInRange(cmd.limitPrice) || !locator_.isAligned(cmd.limitPrice))
+            {
+                emit({.type = engine::core::TradeEvent::Type::OrderRejected,
+                      .instrumentId = instrumentId_,
+                      .aggressorOrderId = cmd.orderId,
+                      .aggressorClientId = cmd.clientId});
+
+                return;
+            }
+
+            // FOK
+            if (cmd.tif == types::TimeInForce::FOK && !canFullyFill(cmd))
             {
                 emit({.type = engine::core::TradeEvent::Type::OrderRejected,
                       .instrumentId = instrumentId_,
