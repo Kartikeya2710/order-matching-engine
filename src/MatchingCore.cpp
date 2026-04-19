@@ -15,6 +15,9 @@ namespace engine
 
     void MatchingCore::loadInstruments(const std::vector<InstrumentConfig> &configs)
     {
+        contexts_.max_load_factor(0.7f);
+        contexts_.reserve(configs.size());
+
         for (const auto &cfg : configs)
         {
             addInstrument(cfg);
