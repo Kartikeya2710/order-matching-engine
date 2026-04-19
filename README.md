@@ -350,4 +350,5 @@ python3 visualize.py --input sim_results.json --output-dir report --dashboard-na
 - [ ] Order book snapshot & recovery persistence
 - [x] Real-time visualization dashboard
 - [x] Benchmark suite with nanosecond latency histograms
+- [ ] Improve order id to order index (in order pool) mapping
 - [ ] Implement `FlexBook`
