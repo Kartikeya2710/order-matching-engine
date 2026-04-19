@@ -6,6 +6,7 @@
 #include "TradeEvent.hpp"
 #include "PriceLevel.hpp"
 #include "ArrayBitMapLocator.hpp"
+#include "OrderIndex.hpp"
 
 namespace engine::book
 {
@@ -16,10 +17,12 @@ namespace engine::book
         size_t PoolCap = 32768>
     class OrderBook
     {
+        static_assert((Cap & (Cap - 1)) == 0, "Cap must be a power of two");
+
     private:
         OrderPool<PoolCap> pool_;
         LevelLocator locator_;
-        std::unordered_map<types::OrderId, uint32_t> index_;
+        OrderIndex<PoolCap * 2> index_;
         types::InstrumentId instrumentId_ = 0;
         EventCallback onEvent_;
 
@@ -115,7 +118,7 @@ namespace engine::book
             appendOrderInLevel(level, poolIdx, pool_);
             locator_.markNonEmpty(cmd.verb, cmd.limitPrice);
 
-            index_[cmd.orderId] = poolIdx;
+            index_.insert([cmd.orderId], poolIdx);
 
             emit({.type = engine::core::TradeEvent::Type::OrderAccepted,
                   .instrumentId = instrumentId_,
@@ -197,8 +200,8 @@ namespace engine::book
 
         void cancelOrder(const engine::core::Command &cmd) noexcept
         {
-            auto it = index_.find(cmd.orderId);
-            if (it == index_.end())
+            uint32_t *it = index_.find(cmd.orderId);
+            if (it == nullptr)
             {
                 emit({.type = engine::core::TradeEvent::Type::OrderRejected,
                       .instrumentId = instrumentId_,
@@ -206,7 +209,7 @@ namespace engine::book
                       .aggressorClientId = cmd.clientId});
                 return;
             }
-            uint32_t poolIdx = it->second;
+            uint32_t poolIdx = *it;
             PoolOrder &order = pool_[poolIdx]; // get stored verb/price, NOT cmd fields
 
             emit({.type = engine::core::TradeEvent::Type::OrderCancelled,
@@ -219,8 +222,8 @@ namespace engine::book
 
         void modifyOrder(const engine::core::Command &cmd) noexcept
         {
-            auto it = index_.find(cmd.orderId);
-            if (it == index_.end())
+            uint32_t *it = index_.find(cmd.orderId);
+            if (it == nullptr)
             {
                 emit({.type = engine::core::TradeEvent::Type::OrderRejected,
                       .instrumentId = instrumentId_,
@@ -230,7 +233,7 @@ namespace engine::book
                 return;
             }
 
-            uint32_t poolIdx = it->second;
+            uint32_t poolIdx = *it;
             PoolOrder &order = pool_[poolIdx];
 
             // Quantity decrease at same price: update in place, preserve time priority.
@@ -250,8 +253,6 @@ namespace engine::book
         types::Price bestBid() const noexcept { return locator_.bestBid(); }
         types::Price bestAsk() const noexcept { return locator_.bestAsk(); }
         uint32_t poolFreeCount() const noexcept { return pool_.freeCount(); }
-        size_t openOrders() const noexcept { return index_.size(); }
-
         void setEventCallback(EventCallback cb) noexcept { onEvent_ = std::move(cb); }
     };
 

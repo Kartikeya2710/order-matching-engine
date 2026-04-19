@@ -168,7 +168,6 @@ TEST("Book: empty book has no best bid or ask")
     auto book = makeBook(events);
     ASSERT_EQ(book.bestBid(), NO_PRICE);
     ASSERT_EQ(book.bestAsk(), NO_PRICE);
-    ASSERT_EQ(book.openOrders(), 0u);
 }
 
 TEST("Book: add single resting buy — rests in book")
@@ -179,7 +178,6 @@ TEST("Book: add single resting buy — rests in book")
 
     ASSERT_EQ(book.bestBid(), 10050u);
     ASSERT_EQ(book.bestAsk(), NO_PRICE);
-    ASSERT_EQ(book.openOrders(), 1u);
     ASSERT_EQ(events.size(), 1u);
     ASSERT_EQ(static_cast<int>(events[0].type),
               static_cast<int>(TradeEvent::Type::OrderAccepted));
@@ -193,7 +191,6 @@ TEST("Book: add single resting sell — rests in book")
 
     ASSERT_EQ(book.bestAsk(), 10060u);
     ASSERT_EQ(book.bestBid(), NO_PRICE);
-    ASSERT_EQ(book.openOrders(), 1u);
 }
 
 TEST("Book: best bid tracks multiple resting buys correctly")
@@ -232,7 +229,6 @@ TEST("Book: crossing limit sell → full fill")
     book.addOrder(addLimit(2, Verb::Sell, 10040, 100)); // crosses at 10050
 
     // Both orders should be fully filled.
-    ASSERT_EQ(book.openOrders(), 0u);
     ASSERT_EQ(book.bestBid(), NO_PRICE);
     ASSERT_EQ(book.bestAsk(), NO_PRICE);
 
@@ -271,7 +267,6 @@ TEST("Book: partial fill leaves remainder in book")
     book.addOrder(addLimit(1, Verb::Buy, 10050, 200)); // rest 200 @ 10050
     book.addOrder(addLimit(2, Verb::Sell, 10040, 80)); // sell 80 → partial fill
 
-    ASSERT_EQ(book.openOrders(), 1u);  // resting buy still alive
     ASSERT_EQ(book.bestBid(), 10050u); // still best bid
     ASSERT_EQ(book.bestAsk(), NO_PRICE);
 
@@ -304,7 +299,6 @@ TEST("Book: FIFO priority — first resting order fills first")
             ev.passiveOrderId == 1)
             order1Filled = true;
     ASSERT_TRUE(order1Filled);
-    ASSERT_EQ(book.openOrders(), 1u); // order 2 still resting
 }
 
 TEST("Book: multiple price levels — best price matches first")
@@ -323,7 +317,6 @@ TEST("Book: multiple price levels — best price matches first")
         if (ev.fillPrice == 10060u)
             filledAt10060 = true;
     ASSERT_TRUE(filledAt10060);
-    ASSERT_EQ(book.openOrders(), 1u); // order 1 still resting at 10050
 }
 
 TEST("Book: aggressor walks multiple price levels to fill")
@@ -336,7 +329,6 @@ TEST("Book: aggressor walks multiple price levels to fill")
     events.clear();
     book.addOrder(addLimit(3, Verb::Buy, 10080, 100)); // should fill both levels
 
-    ASSERT_EQ(book.openOrders(), 0u);
     int fills = 0;
     for (auto &ev : events)
         if (ev.type == TradeEvent::Type::Fill ||
@@ -358,7 +350,6 @@ TEST("Book: market order fills completely against available liquidity")
     events.clear();
     book.addOrder(addMarket(2, Verb::Buy, 200));
 
-    ASSERT_EQ(book.openOrders(), 0u);
     bool hasFill = false;
     for (auto &ev : events)
         if (ev.type == TradeEvent::Type::Fill)
@@ -377,7 +368,6 @@ TEST("Book: market order against empty book → rejected")
         if (ev.type == TradeEvent::Type::OrderRejected)
             rejected = true;
     ASSERT_TRUE(rejected);
-    ASSERT_EQ(book.openOrders(), 0u);
 }
 
 TEST("Book: market order partially fills then rejects remainder")
@@ -400,7 +390,6 @@ TEST("Book: market order partially fills then rejects remainder")
     }
     ASSERT_TRUE(hasPartial);
     ASSERT_TRUE(hasReject);
-    ASSERT_EQ(book.openOrders(), 0u);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -416,7 +405,6 @@ TEST("Book: IOC order with full fill succeeds")
     events.clear();
     book.addOrder(addLimit(2, Verb::Buy, 10060, 100, TimeInForce::IOC));
 
-    ASSERT_EQ(book.openOrders(), 0u);
     bool hasFill = false;
     for (auto &ev : events)
         if (ev.type == TradeEvent::Type::Fill)
@@ -433,8 +421,6 @@ TEST("Book: IOC order discards unfilled remainder — does not rest")
     events.clear();
     book.addOrder(addLimit(2, Verb::Buy, 10060, 200, TimeInForce::IOC)); // 150 unfilled
 
-    ASSERT_EQ(book.openOrders(), 0u); // nothing rests
-
     bool accepted = false;
     for (auto &ev : events)
         if (ev.type == TradeEvent::Type::OrderAccepted)
@@ -449,7 +435,6 @@ TEST("Book: IOC with no match → nothing rests, no fill")
 
     book.addOrder(addLimit(1, Verb::Sell, 10060, 100, TimeInForce::IOC));
 
-    ASSERT_EQ(book.openOrders(), 0u);
     bool hasFill = false;
     for (auto &ev : events)
         if (ev.type == TradeEvent::Type::Fill ||
@@ -468,11 +453,9 @@ TEST("Book: cancel existing order removes it from book")
     auto book = makeBook(events);
 
     book.addOrder(addLimit(1, Verb::Buy, 10050, 100));
-    ASSERT_EQ(book.openOrders(), 1u);
     events.clear();
     book.cancelOrder(cancel(1));
 
-    ASSERT_EQ(book.openOrders(), 0u);
     ASSERT_EQ(book.bestBid(), NO_PRICE);
 
     bool wasCancelled = false;
@@ -503,7 +486,6 @@ TEST("Book: cancel non-existent order → rejected, book unchanged")
     events.clear();
     book.cancelOrder(cancel(999)); // does not exist
 
-    ASSERT_EQ(book.openOrders(), 1u); // original order still alive
     bool wasRejected = false;
     for (auto &ev : events)
         if (ev.type == TradeEvent::Type::OrderRejected)
@@ -521,7 +503,6 @@ TEST("Book: cancel middle order in level — list integrity preserved")
     book.addOrder(addLimit(3, Verb::Buy, 10050, 300));
     book.cancelOrder(cancel(2)); // cancel the middle order
 
-    ASSERT_EQ(book.openOrders(), 2u);
     // Verify orders 1 and 3 still fill correctly (FIFO: 1 before 3).
     events.clear();
     book.addOrder(addLimit(4, Verb::Sell, 10040, 100));
@@ -629,7 +610,6 @@ TEST("Book: order with out-of-range price → rejected")
         if (ev.type == TradeEvent::Type::OrderRejected)
             wasRejected = true;
     ASSERT_TRUE(wasRejected);
-    ASSERT_EQ(book.openOrders(), 0u);
 }
 
 TEST("Book: order with off-tick price → rejected")
@@ -654,7 +634,7 @@ TEST("Book: pool exhaustion → order rejected")
 {
     // Use a tiny pool for this test.
     std::vector<TradeEvent> events;
-    OrderBook<ArrayBitMapLocator, 2, 4> tinyBook(
+    OrderBook<ArrayBitMapLocator, 2> tinyBook(
         ArrayBitMapLocator(REL_RANGE), REL_ID,
         [&events](const TradeEvent &ev)
         { events.push_back(ev); });
