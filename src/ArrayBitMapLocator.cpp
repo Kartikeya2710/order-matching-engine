@@ -69,12 +69,11 @@ namespace engine::book
 
     types::Price ArrayBitMapLocator::bestBid() const noexcept
     {
-        const auto &bm = bitMapFor(types::Verb::Buy);
-        for (int w = static_cast<int>(bm.size()) - 1; w >= 0; --w)
+        for (int w = static_cast<int>(bidBitMap_.size()) - 1; w >= 0; --w)
         {
-            if (bm[static_cast<size_t>(w)] == 0)
+            if (bidBitMap_[w] == 0)
                 continue;
-            std::uint32_t bit = 63u - static_cast<std::uint32_t>(__builtin_clzll(bm[static_cast<size_t>(w)]));
+            std::uint32_t bit = 63u - static_cast<std::uint32_t>(__builtin_clzll(bidBitMap_[w]));
             return indexToPrice(static_cast<std::uint32_t>(w) * BITMAP_WORD_SIZE + bit);
         }
         return NO_PRICE;
@@ -82,12 +81,11 @@ namespace engine::book
 
     types::Price ArrayBitMapLocator::bestAsk() const noexcept
     {
-        const auto &bm = bitMapFor(types::Verb::Sell);
-        for (size_t w = 0; w < bm.size(); ++w)
+        for (size_t w = 0; w < askBitMap_.size(); ++w)
         {
-            if (bm[w] == 0)
+            if (askBitMap_[w] == 0)
                 continue;
-            std::uint32_t bit = static_cast<std::uint32_t>(__builtin_ctzll(bm[w]));
+            std::uint32_t bit = static_cast<std::uint32_t>(__builtin_ctzll(askBitMap_[w]));
             return indexToPrice(static_cast<std::uint32_t>(w) * BITMAP_WORD_SIZE + bit);
         }
         return NO_PRICE;
