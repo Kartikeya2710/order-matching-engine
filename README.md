@@ -9,6 +9,7 @@ Built from the ground up for **sub-microsecond** order processing, this engine d
 ## Table of Contents
 
 - [Results](#results)
+- [High-Level Design](#high-level-design)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Performance & Optimizations](#performance--optimizations)
@@ -51,6 +52,13 @@ python3 gen_commands.py -n 50000 --duration-ms 10000 --seed 42
 python3 visualize.py --input sim_results.json --output-dir report
 --dashboard-name dashboard_w1.png --report-name report_w1.html
 ```
+
+---
+
+## High-Level Design
+
+You can find the detailed design here:
+[Order Matching Engine HLD](https://docs.google.com/document/d/1j_P_XHgaPodja07eBl6gb003unVLGPQW8VrcwoMPjZ8/edit?usp=sharing)
 
 ## Features
 
@@ -348,6 +356,7 @@ python3 visualize.py --input sim_results.json --output-dir report --dashboard-na
 
 - [ ] FOK (Fill-Or-Kill) order type
 - [ ] Order book snapshot & recovery persistence
+- [ ] Generate Level 1 and 2 market data
 - [x] Real-time visualization dashboard
 - [x] Benchmark suite with nanosecond latency histograms
 - [x] Improve order id to order index (in order pool) mapping
