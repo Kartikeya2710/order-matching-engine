@@ -25,7 +25,7 @@ namespace engine::book
         static constexpr uint64_t EMPTY_KEY = UINT64_MAX;
         static constexpr size_t MASK = Cap - 1;
 
-        alignas(16) struct Slot
+        struct alignas(16) Slot
         {
             uint64_t key = EMPTY_KEY;
             uint32_t value = 0;
@@ -75,7 +75,7 @@ namespace engine::book
             size_t i = hash(key);
             while (slots_[i].key != EMPTY_KEY)
                 i = (i + 1) & MASK;
-            slots_[i] = {key, value, 0};
+            slots_[i] = {key, value};
         }
 
         void erase(uint64_t key) noexcept
