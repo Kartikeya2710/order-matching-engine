@@ -17,7 +17,7 @@ namespace engine::book
         size_t PoolCap = 32768>
     class OrderBook
     {
-        static_assert((Cap & (Cap - 1)) == 0, "Cap must be a power of two");
+        static_assert((PoolCap & (PoolCap - 1)) == 0, "PoolCap must be a power of two");
 
     private:
         OrderPool<PoolCap> pool_;
@@ -153,7 +153,7 @@ namespace engine::book
             appendOrderInLevel(level, poolIdx, pool_);
             locator_.markNonEmpty(cmd.verb, cmd.limitPrice);
 
-            index_.insert([cmd.orderId], poolIdx);
+            index_.insert(cmd.orderId, poolIdx);
 
             emit({.type = engine::core::TradeEvent::Type::OrderAccepted,
                   .instrumentId = instrumentId_,
