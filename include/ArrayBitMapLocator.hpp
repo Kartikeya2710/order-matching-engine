@@ -50,6 +50,9 @@ namespace engine::book
         bool isInRange(types::Price price) const noexcept;
         bool isAligned(types::Price price) const noexcept;
 
+        types::Price nextBid(types::Price price) const noexcept;
+        types::Price nextAsk(types::Price price) const noexcept;
+
         types::Price bestBid() const noexcept;
         types::Price bestAsk() const noexcept;
     };

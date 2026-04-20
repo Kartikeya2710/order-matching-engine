@@ -90,4 +90,48 @@ namespace engine::book
         }
         return NO_PRICE;
     }
+
+    types::Price ArrayBitMapLocator::nextBid(types::Price price) const noexcept
+    {
+        if (price <= range_.minPrice)
+            return NO_PRICE;
+
+        uint32_t startIdx = priceToIndex(price) - 1;
+        int startWord = static_cast<int>(startIdx / BITMAP_WORD_SIZE);
+        uint32_t startBit = startIdx % BITMAP_WORD_SIZE;
+        uint64_t mask = (startBit == 63u) ? ~uint64_t{0} : (uint64_t{1} << (startBit + 1)) - 1;
+
+        for (int w = startWord; w >= 0; --w, mask = ~uint64_t{0})
+        {
+            uint64_t word = bidBitMap_[w] & mask;
+            if (word == 0)
+                continue;
+            uint32_t bit = 63u - static_cast<uint32_t>(__builtin_clzll(word));
+            return indexToPrice(static_cast<uint32_t>(w) * BITMAP_WORD_SIZE + bit);
+        }
+
+        return NO_PRICE;
+    }
+
+    types::Price ArrayBitMapLocator::nextAsk(types::Price price) const noexcept
+    {
+        uint32_t startIdx = priceToIndex(price) + 1;
+        if (startIdx >= static_cast<uint32_t>(numLevels_))
+            return NO_PRICE;
+
+        size_t startWord = startIdx / BITMAP_WORD_SIZE;
+        uint32_t startBit = startIdx % BITMAP_WORD_SIZE;
+        uint64_t mask = ~((uint64_t{1} << startBit) - 1);
+
+        for (size_t w = startWord; w < askBitMap_.size(); ++w, mask = ~uint64_t{0})
+        {
+            uint64_t word = askBitMap_[w] & mask;
+            if (word == 0)
+                continue;
+            uint32_t bit = static_cast<uint32_t>(__builtin_ctzll(word));
+            return indexToPrice(static_cast<uint32_t>(w) * BITMAP_WORD_SIZE + bit);
+        }
+
+        return NO_PRICE;
+    }
 }
