@@ -35,7 +35,6 @@ namespace engine::book
         std::vector<PriceLevel> &priceLevels(types::Verb verb) noexcept;
 
         std::vector<uint64_t> &bitMapFor(types::Verb verb) noexcept;
-        const std::vector<uint64_t> &bitMapFor(types::Verb verb) const noexcept;
 
         void setBit(std::vector<uint64_t> &bm, uint32_t idx) noexcept;
         void clearBit(std::vector<uint64_t> &bm, uint32_t idx) noexcept;
