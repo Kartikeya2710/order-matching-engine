@@ -237,7 +237,7 @@ namespace engine::book
             }
 
             // Validate price before touching the book.
-            if (!locator_.isValidPrice(cmd.limitPrice))
+            if (!locator_.isInRange(cmd.limitPrice) || !locator_.isAligned(cmd.limitPrice))
             {
                 emit(
                     {.type = engine::core::TradeEvent::Type::OrderRejected,
