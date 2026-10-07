@@ -27,4 +27,4 @@ namespace engine::core
 
     static_assert(sizeof(Command) <= 64, "Command struct must fit in one cache line (64 bytes)");
 
-}
+} // namespace engine::core

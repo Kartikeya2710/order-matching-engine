@@ -12,7 +12,7 @@ namespace engine
         }
     }
 
-    void ThreadPool::assignInstrument(InstrumentContext *ctx) noexcept
+    void ThreadPool::assignInstrument(InstrumentContext* ctx) noexcept
     {
         size_t workerIdx = ctx->instrumentId % numWorkers_;
         workers_[workerIdx]->assignInstrument(ctx);
@@ -20,15 +20,22 @@ namespace engine
 
     void ThreadPool::startAll()
     {
-        for (auto &w : workers_)
+        for (auto& w : workers_)
+        {
             w->start();
+        }
     }
 
     void ThreadPool::stopAll()
     {
-        for (auto &w : workers_)
+        for (auto& w : workers_)
+        {
             w->stop();
+        }
     }
 
-    size_t ThreadPool::workerCount() const noexcept { return numWorkers_; }
-}
+    size_t ThreadPool::workerCount() const noexcept
+    {
+        return numWorkers_;
+    }
+} // namespace engine

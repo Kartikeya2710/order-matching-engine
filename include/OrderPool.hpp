@@ -1,7 +1,9 @@
 #pragma once
-#include "Types.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
+
+#include "Types.hpp"
 
 namespace engine::book
 {
@@ -22,13 +24,17 @@ namespace engine::book
     class OrderPool
     {
     public:
-        static_assert(Capacity > 0 && Capacity <= (1u << 20),
-                      "Pool capacity must be between 1 and 1M orders");
+        static_assert(
+            Capacity > 0 && Capacity <= (1u << 20),
+            "Pool capacity must be between 1 and 1M orders"
+        );
 
         OrderPool() noexcept
         {
             for (uint32_t i = 0; i < Capacity; ++i)
+            {
                 freeStack_[i] = Capacity - i - 1;
+            }
             freeTop_ = static_cast<int32_t>(Capacity) - 1;
         }
 
@@ -36,7 +42,10 @@ namespace engine::book
         [[nodiscard]] uint32_t acquire() noexcept
         {
             if (__builtin_expect(freeTop_ < 0, 0))
+            {
                 return UINT32_MAX;
+            }
+
             return freeStack_[freeTop_--];
         }
 
@@ -45,18 +54,25 @@ namespace engine::book
             freeStack_[++freeTop_] = idx;
         }
 
-        PoolOrder &operator[](uint32_t idx) noexcept { return slots_[idx]; }
-        const PoolOrder &operator[](uint32_t idx) const noexcept { return slots_[idx]; }
+        PoolOrder& operator[](uint32_t idx) noexcept
+        {
+            return slots_[idx];
+        }
 
-        uint32_t freeCount() const noexcept
+        const PoolOrder& operator[](uint32_t idx) const noexcept
+        {
+            return slots_[idx];
+        }
+
+        [[nodiscard]] uint32_t freeCount() const noexcept
         {
             return static_cast<uint32_t>(freeTop_ + 1);
         }
 
     private:
-        alignas(64) PoolOrder slots_[Capacity];
-        uint32_t freeStack_[Capacity];
+        alignas(64) std::array<uint32_t, Capacity> slots_;
+        std::array<uint32_t, Capacity> freeStack_;
         int32_t freeTop_;
     };
 
-}
+} // namespace engine::book

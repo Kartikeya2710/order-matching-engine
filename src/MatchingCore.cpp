@@ -4,7 +4,8 @@ namespace engine
 {
 
     MatchingCore::MatchingCore(Config cfg)
-        : cfg_(cfg), pool_(std::make_unique<ThreadPool>(cfg.numWorkers, cfg.firstWorkerCore))
+        : cfg_(cfg),
+          pool_(std::make_unique<ThreadPool>(cfg.numWorkers, cfg.firstWorkerCore))
     {
     }
 
@@ -13,12 +14,12 @@ namespace engine
         stop();
     }
 
-    void MatchingCore::loadInstruments(const std::vector<InstrumentConfig> &configs)
+    void MatchingCore::loadInstruments(const std::vector<InstrumentConfig>& configs)
     {
         contexts_.max_load_factor(0.7f);
         contexts_.reserve(configs.size());
 
-        for (const auto &cfg : configs)
+        for (const auto& cfg : configs)
         {
             addInstrument(cfg);
         }
@@ -51,14 +52,18 @@ namespace engine
         pool_->stopAll();
         drainerRunning_.store(false, std::memory_order_release);
         if (drainerThread_.joinable())
+        {
             drainerThread_.join();
+        }
     }
 
     bool MatchingCore::submit(engine::core::Command cmd) noexcept
     {
         auto it = contexts_.find(cmd.instrumentId);
         if (__builtin_expect(it == contexts_.end(), 0))
+        {
             return false; // unknown instrument
+        }
 
         return dispatchToContext(it->second.get(), std::move(cmd));
     }
@@ -67,20 +72,34 @@ namespace engine
     {
         auto it = contexts_.find(id);
         if (it == contexts_.end())
+        {
             return book::NO_PRICE;
-        return std::visit([](const auto &book)
-                          { return book.bestBid(); },
-                          it->second->book);
+        }
+
+        return std::visit(
+            [](const auto& book)
+            {
+                return book.bestBid();
+            },
+            it->second->book
+        );
     }
 
     types::Price MatchingCore::bestAsk(types::InstrumentId id) const noexcept
     {
         auto it = contexts_.find(id);
         if (it == contexts_.end())
+        {
             return book::NO_PRICE;
-        return std::visit([](const auto &book)
-                          { return book.bestAsk(); },
-                          it->second->book);
+        }
+
+        return std::visit(
+            [](const auto& book)
+            {
+                return book.bestAsk();
+            },
+            it->second->book
+        );
     }
 
     void MatchingCore::drainerLoop() noexcept
@@ -90,26 +109,32 @@ namespace engine
         while (drainerRunning_.load(std::memory_order_relaxed))
         {
             bool anyWork = false;
-            for (auto &[id, ctx] : contexts_)
+            for (auto& [id, ctx] : contexts_)
             {
                 while (ctx->outputQueue.dequeue(ev))
                 {
                     anyWork = true;
                     if (tradeCallback_)
+                    {
                         tradeCallback_(ev);
+                    }
                 }
             }
             if (!anyWork)
+            {
                 CPU_RELAX();
+            }
         }
 
-        for (auto &[id, ctx] : contexts_)
+        for (auto& [id, ctx] : contexts_)
         {
             while (ctx->outputQueue.dequeue(ev))
             {
                 if (tradeCallback_)
+                {
                     tradeCallback_(ev);
+                }
             }
         }
     }
-}
+} // namespace engine

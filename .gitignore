@@ -64,3 +64,6 @@ sim_results.json
 
 # Compressed zip files
 *.zip
+
+# clang
+.cache/

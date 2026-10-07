@@ -13,10 +13,24 @@ namespace engine
                 return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
             }
 
-            std::suspend_always initial_suspend() noexcept { return {}; }
-            std::suspend_never final_suspend() noexcept { return {}; }
-            void return_void() noexcept {}
-            void unhandled_exception() noexcept { std::terminate(); }
+            std::suspend_always initial_suspend() noexcept
+            {
+                return {};
+            }
+
+            std::suspend_never final_suspend() noexcept
+            {
+                return {};
+            }
+
+            void return_void() noexcept
+            {
+            }
+
+            void unhandled_exception() noexcept
+            {
+                std::terminate();
+            }
         };
 
         using handle_type = std::coroutine_handle<>;
@@ -31,14 +45,16 @@ namespace engine
             }
         }
 
-        Task(const Task &) = delete;
-        Task &operator=(const Task &) = delete;
+        Task(const Task&) = delete;
+        Task& operator=(const Task&) = delete;
 
-        Task(Task &&other) noexcept : handle(other.handle)
+        Task(Task&& other) noexcept : handle(other.handle)
         {
             other.handle = nullptr;
         }
 
-        explicit Task(handle_type h) noexcept : handle(h) {}
+        explicit Task(handle_type h) noexcept : handle(h)
+        {
+        }
     };
-}
+} // namespace engine

@@ -1,14 +1,15 @@
 #pragma once
 #include <array>
-#include <new>
 #include <atomic>
 #include <bit>
+#include <new>
 
 namespace engine::utils
 {
 
-    // Leave one empty slot in the buffer to differentiate between full and empty condition (otherwise, read_idx == write_idx in both the cases).
-    // This helps us avoid having to maintain a state indicating whether the buffer is full or empty.
+    // Leave one empty slot in the buffer to differentiate between full and empty condition
+    // (otherwise, read_idx == write_idx in both the cases). This helps us avoid having to maintain
+    // a state indicating whether the buffer is full or empty.
     template <typename data_T, size_t size_T>
     class SPSC_RingBuffer
     {
@@ -27,7 +28,9 @@ namespace engine::utils
         static_assert(size_T >= 2, "Queue size must be at least 2");
         static_assert(std::has_single_bit(size_T), "Queue size must be a power of 2");
 
-        SPSC_RingBuffer() : read_idx(0), write_idx(0) {}
+        SPSC_RingBuffer() : read_idx(0), write_idx(0)
+        {
+        }
 
         ~SPSC_RingBuffer()
         {
@@ -37,7 +40,7 @@ namespace engine::utils
             }
         }
 
-        auto enqueue(data_T &&element) -> bool
+        auto enqueue(data_T&& element) -> bool
         {
             const auto current_write = write_idx.load(std::memory_order_relaxed);
             const auto next_write = (current_write + 1) & mask;
@@ -51,10 +54,11 @@ namespace engine::utils
             new (buffer[current_write].m_cell) data_T(std::move(element));
 
             write_idx.store(next_write, std::memory_order_release);
+
             return true;
         }
 
-        auto dequeue(data_T &element_out) -> bool
+        auto dequeue(data_T& element_out) -> bool
         {
             const auto current_read = read_idx.load(std::memory_order_relaxed);
 
@@ -64,11 +68,12 @@ namespace engine::utils
                 return false;
             }
 
-            data_T *element_ptr = reinterpret_cast<data_T *>(&buffer[current_read].m_cell);
+            data_T* element_ptr = reinterpret_cast<data_T*>(&buffer[current_read].m_cell);
             element_out = std::move(*element_ptr);
             element_ptr->~data_T();
 
             read_idx.store((current_read + 1) & mask, std::memory_order_release);
+
             return true;
         }
 
@@ -80,4 +85,4 @@ namespace engine::utils
         }
     };
 
-}
+} // namespace engine::utils

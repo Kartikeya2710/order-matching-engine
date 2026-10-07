@@ -23,5 +23,7 @@ namespace engine
         return true;
     }
 
-    void QueueAwaitable::await_resume() const noexcept {}
-}
+    void QueueAwaitable::await_resume() const noexcept
+    {
+    }
+} // namespace engine
