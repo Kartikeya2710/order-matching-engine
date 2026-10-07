@@ -17,7 +17,7 @@ using namespace engine::book;
 using namespace engine::core;
 using namespace engine::types;
 
-static PriceRange REL_RANGE{100000, 200000, 5};
+static PriceRange REL_RANGE{.minPrice = 100000, .maxPrice = 200000, .tickSize = 5};
 static constexpr InstrumentId REL_ID = 1;
 
 static FastBook makeBook(std::vector<TradeEvent>& events, PriceRange range = REL_RANGE)

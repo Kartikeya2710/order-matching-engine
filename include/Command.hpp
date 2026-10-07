@@ -4,7 +4,7 @@
 namespace engine::core
 {
 
-    enum class CommandType : std::uint16_t
+    enum class CommandType : std::uint8_t
     {
         AddOrder = 0,
         CancelOrder = 1,

@@ -43,7 +43,7 @@ namespace engine
 
         void stop();
 
-        bool submit(engine::core::Command cmd) noexcept;
+        bool submit(const engine::core::Command& cmd) noexcept;
 
         types::Price bestBid(types::InstrumentId id) const noexcept;
         types::Price bestAsk(types::InstrumentId id) const noexcept;

@@ -20,6 +20,6 @@ namespace engine
 
         void stopAll();
 
-        size_t workerCount() const noexcept;
+        [[nodiscard]] size_t workerCount() const noexcept;
     };
 } // namespace engine

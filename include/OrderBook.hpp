@@ -336,17 +336,17 @@ namespace engine::book
             restInBook(cmd, cmd.qty);
         }
 
-        types::Price bestBid() const noexcept
+        [[nodiscard]] types::Price bestBid() const noexcept
         {
             return locator_.bestBid();
         }
 
-        types::Price bestAsk() const noexcept
+        [[nodiscard]] types::Price bestAsk() const noexcept
         {
             return locator_.bestAsk();
         }
 
-        uint32_t poolFreeCount() const noexcept
+        [[nodiscard]] uint32_t poolFreeCount() const noexcept
         {
             return pool_.freeCount();
         }

@@ -57,7 +57,7 @@ namespace engine
         }
     }
 
-    bool MatchingCore::submit(engine::core::Command cmd) noexcept
+    bool MatchingCore::submit(const engine::core::Command& cmd) noexcept
     {
         auto it = contexts_.find(cmd.instrumentId);
         if (__builtin_expect(it == contexts_.end(), 0))
@@ -65,7 +65,7 @@ namespace engine
             return false; // unknown instrument
         }
 
-        return dispatchToContext(it->second.get(), std::move(cmd));
+        return dispatchToContext(it->second.get(), cmd);
     }
 
     types::Price MatchingCore::bestBid(types::InstrumentId id) const noexcept

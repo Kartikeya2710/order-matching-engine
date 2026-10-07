@@ -2,7 +2,9 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <cstddef>
 #include <new>
+#include <utility>
 
 namespace engine::utils
 {
@@ -16,7 +18,7 @@ namespace engine::utils
     private:
         struct cell_t
         {
-            alignas(data_T) std::byte m_cell[sizeof(data_T)];
+            alignas(data_T) std::array<std::byte, sizeof(data_T)> m_cell;
         };
 
         static constexpr std::size_t mask = size_T - 1;
@@ -40,7 +42,7 @@ namespace engine::utils
             }
         }
 
-        auto enqueue(data_T&& element) -> bool
+        auto enqueue(const data_T& element) -> bool
         {
             const auto current_write = write_idx.load(std::memory_order_relaxed);
             const auto next_write = (current_write + 1) & mask;
@@ -51,7 +53,7 @@ namespace engine::utils
                 return false;
             }
 
-            new (buffer[current_write].m_cell) data_T(std::move(element));
+            new (buffer[current_write].m_cell.data()) data_T(element);
 
             write_idx.store(next_write, std::memory_order_release);
 
@@ -68,7 +70,8 @@ namespace engine::utils
                 return false;
             }
 
-            data_T* element_ptr = reinterpret_cast<data_T*>(&buffer[current_read].m_cell);
+            auto* element_ptr =
+                std::launder(reinterpret_cast<data_T*>(buffer[current_read].m_cell.data()));
             element_out = std::move(*element_ptr);
             element_ptr->~data_T();
 

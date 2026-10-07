@@ -48,8 +48,7 @@ namespace engine
                     b.setEventCallback(
                         [this](const core::TradeEvent& ev) noexcept
                         {
-                            core::TradeEvent copy = ev;
-                            (void)this->outputQueue.enqueue(std::move(copy));
+                            (void)this->outputQueue.enqueue(ev);
                         }
                     );
                 },
@@ -61,9 +60,9 @@ namespace engine
         InstrumentContext& operator=(const InstrumentContext&) = delete;
     };
 
-    inline bool dispatchToContext(InstrumentContext* ctx, core::Command cmd) noexcept
+    inline bool dispatchToContext(InstrumentContext* ctx, const core::Command& cmd) noexcept
     {
-        if (!ctx->inputQueue.enqueue(std::move(cmd)))
+        if (!ctx->inputQueue.enqueue(cmd))
         {
             return false; // queue full
         }
@@ -72,7 +71,7 @@ namespace engine
         void* h = ctx->pendingHandle.exchange(nullptr, std::memory_order_acq_rel);
         if (h != nullptr)
         {
-            while (!ctx->wakeQueue->enqueue(std::move(h)))
+            while (!ctx->wakeQueue->enqueue(h))
             {
                 CPU_RELAX();
             }

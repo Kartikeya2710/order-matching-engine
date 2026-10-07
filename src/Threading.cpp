@@ -37,7 +37,7 @@ namespace engine
             {
                 // Apple Silicon does not support strict pinning.
                 std::cerr << "Warning: Could not pin thread to core " << core << " (macOS kr=46)"
-                          << std::endl;
+                          << '\n';
             }
             else
             {
