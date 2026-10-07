@@ -1,7 +1,7 @@
 #pragma once
 #include <array>
-#include <cstdint>
 #include <cassert>
+#include <cstdint>
 
 namespace engine::book
 {
@@ -41,31 +41,40 @@ namespace engine::book
             k ^= k >> 33;
             k *= 0xc4ceb9fe1a85ec53ULL;
             k ^= k >> 33;
+
             return static_cast<size_t>(k & MASK);
         }
 
     public:
-        [[nodiscard]] uint32_t *find(uint64_t key) noexcept
+        [[nodiscard]] uint32_t* find(uint64_t key) noexcept
         {
             assert(key != EMPTY_KEY && "UINT64_MAX is reserved as empty sentinel");
             for (size_t i = hash(key);; i = (i + 1) & MASK)
             {
                 if (slots_[i].key == key)
+                {
                     return &slots_[i].value;
+                }
                 if (slots_[i].key == EMPTY_KEY)
+                {
                     return nullptr;
+                }
             }
         }
 
-        [[nodiscard]] const uint32_t *find(uint64_t key) const noexcept
+        [[nodiscard]] const uint32_t* find(uint64_t key) const noexcept
         {
             assert(key != EMPTY_KEY && "UINT64_MAX is reserved as empty sentinel");
             for (size_t i = hash(key);; i = (i + 1) & MASK)
             {
                 if (slots_[i].key == key)
+                {
                     return &slots_[i].value;
+                }
                 if (slots_[i].key == EMPTY_KEY)
+                {
                     return nullptr;
+                }
             }
         }
 
@@ -74,7 +83,9 @@ namespace engine::book
             assert(key != EMPTY_KEY && "UINT64_MAX is reserved as empty sentinel");
             size_t i = hash(key);
             while (slots_[i].key != EMPTY_KEY)
+            {
                 i = (i + 1) & MASK;
+            }
             slots_[i] = {key, value};
         }
 
@@ -86,7 +97,9 @@ namespace engine::book
             while (slots_[i].key != key)
             {
                 if (slots_[i].key == EMPTY_KEY)
+                {
                     return;
+                }
                 i = (i + 1) & MASK;
             }
 
@@ -98,15 +111,15 @@ namespace engine::book
                 if (slots_[j].key == EMPTY_KEY)
                 {
                     slots_[hole].key = EMPTY_KEY;
+
                     return;
                 }
 
                 // Is entry at j displaced past hole? i.e. does its home position
                 // fall outside the range (hole, j], accounting for wraparound?
                 size_t home = hash(slots_[j].key);
-                bool displaced = (hole < j)
-                                     ? (home <= hole || home > j)
-                                     : (home <= hole && home > j);
+                bool displaced =
+                    (hole < j) ? (home <= hole || home > j) : (home <= hole && home > j);
 
                 if (displaced)
                 {
@@ -122,4 +135,4 @@ namespace engine::book
         }
     };
 
-}
+} // namespace engine::book

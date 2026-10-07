@@ -3,35 +3,42 @@
 // threading, which makes assertions deterministic and debuggable.
 // Integration tests that exercise MatchingCore + coroutines are at the bottom.
 
-#include "TestFramework.hpp"
-#include "OrderBook.hpp"
 #include "ArrayBitMapLocator.hpp"
 #include "MatchingCore.hpp"
-#include <vector>
-#include <thread>
-#include <chrono>
+#include "OrderBook.hpp"
+#include "TestFramework.hpp"
 #include <atomic>
+#include <chrono>
+#include <thread>
+#include <vector>
 
 using namespace engine;
 using namespace engine::book;
 using namespace engine::core;
 using namespace engine::types;
 
-static PriceRange REL_RANGE{100000, 200000, 5};
+static PriceRange REL_RANGE{.minPrice = 100000, .maxPrice = 200000, .tickSize = 5};
 static constexpr InstrumentId REL_ID = 1;
 
-static FastBook makeBook(std::vector<TradeEvent> &events,
-                         PriceRange range = REL_RANGE)
+static FastBook makeBook(std::vector<TradeEvent>& events, PriceRange range = REL_RANGE)
 {
     return FastBook(
         ArrayBitMapLocator(range),
         REL_ID,
-        [&events](const TradeEvent &ev)
-        { events.push_back(ev); });
+        [&events](const TradeEvent& ev)
+        {
+            events.push_back(ev);
+        }
+    );
 }
 
-static Command addLimit(OrderId oid, Verb verb, Price price, Quantity qty,
-                        TimeInForce tif = TimeInForce::GTC)
+static Command addLimit(
+    OrderId oid,
+    Verb verb,
+    Price price,
+    Quantity qty,
+    TimeInForce tif = TimeInForce::GTC
+)
 {
     Command cmd{};
     cmd.type = CommandType::AddOrder;
@@ -43,6 +50,7 @@ static Command addLimit(OrderId oid, Verb verb, Price price, Quantity qty,
     cmd.tif = tif;
     cmd.limitPrice = price;
     cmd.qty = qty;
+
     return cmd;
 }
 
@@ -58,6 +66,7 @@ static Command addMarket(OrderId oid, Verb verb, Quantity qty)
     cmd.tif = TimeInForce::IOC;
     cmd.limitPrice = NO_PRICE;
     cmd.qty = qty;
+
     return cmd;
 }
 
@@ -68,6 +77,7 @@ static Command cancel(OrderId oid)
     cmd.orderId = oid;
     cmd.instrumentId = REL_ID;
     cmd.clientId = 42;
+
     return cmd;
 }
 
@@ -83,6 +93,7 @@ static Command modify(OrderId oid, Price newPrice, Quantity newQty, Verb verb)
     cmd.tif = TimeInForce::GTC;
     cmd.limitPrice = newPrice;
     cmd.qty = newQty;
+
     return cmd;
 }
 
@@ -179,8 +190,7 @@ TEST("Book: add single resting buy — rests in book")
     ASSERT_EQ(book.bestBid(), 10050u);
     ASSERT_EQ(book.bestAsk(), NO_PRICE);
     ASSERT_EQ(events.size(), 1u);
-    ASSERT_EQ(static_cast<int>(events[0].type),
-              static_cast<int>(TradeEvent::Type::OrderAccepted));
+    ASSERT_EQ(static_cast<int>(events[0].type), static_cast<int>(TradeEvent::Type::OrderAccepted));
 }
 
 TEST("Book: add single resting sell — rests in book")
@@ -234,12 +244,14 @@ TEST("Book: crossing limit sell → full fill")
 
     // Events: one Fill event.
     bool hasFill = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::Fill)
         {
             hasFill = true;
             break;
         }
+    }
     ASSERT_TRUE(hasFill);
 }
 
@@ -253,9 +265,13 @@ TEST("Book: fill executes at passive order's price (price-time priority)")
     book.addOrder(addLimit(2, Verb::Sell, 10040, 100));
 
     bool correctPrice = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::Fill && ev.fillPrice == 10050u)
+        {
             correctPrice = true;
+        }
+    }
     ASSERT_TRUE(correctPrice); // fills at the resting bid price, not the ask limit
 }
 
@@ -271,13 +287,15 @@ TEST("Book: partial fill leaves remainder in book")
     ASSERT_EQ(book.bestAsk(), NO_PRICE);
 
     bool hasPartial = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::PartialFill)
         {
             hasPartial = true;
             ASSERT_EQ(ev.fillQty, 80u);
             ASSERT_EQ(ev.passiveRemaining, 120u);
         }
+    }
     ASSERT_TRUE(hasPartial);
 }
 
@@ -293,11 +311,14 @@ TEST("Book: FIFO priority — first resting order fills first")
 
     // Only order 1 should have been filled (it arrived first).
     bool order1Filled = false;
-    for (auto &ev : events)
-        if ((ev.type == TradeEvent::Type::Fill ||
-             ev.type == TradeEvent::Type::PartialFill) &&
+    for (auto& ev : events)
+    {
+        if ((ev.type == TradeEvent::Type::Fill || ev.type == TradeEvent::Type::PartialFill) &&
             ev.passiveOrderId == 1)
+        {
             order1Filled = true;
+        }
+    }
     ASSERT_TRUE(order1Filled);
 }
 
@@ -313,9 +334,13 @@ TEST("Book: multiple price levels — best price matches first")
 
     // Should match against order 2 (higher bid = 10060).
     bool filledAt10060 = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.fillPrice == 10060u)
+        {
             filledAt10060 = true;
+        }
+    }
     ASSERT_TRUE(filledAt10060);
 }
 
@@ -330,10 +355,13 @@ TEST("Book: aggressor walks multiple price levels to fill")
     book.addOrder(addLimit(3, Verb::Buy, 10080, 100)); // should fill both levels
 
     int fills = 0;
-    for (auto &ev : events)
-        if (ev.type == TradeEvent::Type::Fill ||
-            ev.type == TradeEvent::Type::PartialFill)
+    for (auto& ev : events)
+    {
+        if (ev.type == TradeEvent::Type::Fill || ev.type == TradeEvent::Type::PartialFill)
+        {
             ++fills;
+        }
+    }
     ASSERT_EQ(fills, 2); // two passive orders filled
 }
 
@@ -351,9 +379,13 @@ TEST("Book: market order fills completely against available liquidity")
     book.addOrder(addMarket(2, Verb::Buy, 200));
 
     bool hasFill = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::Fill)
+        {
             hasFill = true;
+        }
+    }
     ASSERT_TRUE(hasFill);
 }
 
@@ -364,9 +396,13 @@ TEST("Book: market order against empty book → rejected")
     book.addOrder(addMarket(1, Verb::Buy, 100));
 
     bool rejected = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::OrderRejected)
+        {
             rejected = true;
+        }
+    }
     ASSERT_TRUE(rejected);
 }
 
@@ -380,13 +416,16 @@ TEST("Book: market order partially fills then rejects remainder")
     book.addOrder(addMarket(2, Verb::Buy, 200)); // only 50 available
 
     bool hasPartial = false, hasReject = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
     {
-        if (ev.type == TradeEvent::Type::PartialFill ||
-            ev.type == TradeEvent::Type::Fill)
+        if (ev.type == TradeEvent::Type::PartialFill || ev.type == TradeEvent::Type::Fill)
+        {
             hasPartial = true;
+        }
         if (ev.type == TradeEvent::Type::OrderRejected)
+        {
             hasReject = true;
+        }
     }
     ASSERT_TRUE(hasPartial);
     ASSERT_TRUE(hasReject);
@@ -406,9 +445,13 @@ TEST("Book: IOC order with full fill succeeds")
     book.addOrder(addLimit(2, Verb::Buy, 10060, 100, TimeInForce::IOC));
 
     bool hasFill = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::Fill)
+        {
             hasFill = true;
+        }
+    }
     ASSERT_TRUE(hasFill);
 }
 
@@ -422,9 +465,13 @@ TEST("Book: IOC order discards unfilled remainder — does not rest")
     book.addOrder(addLimit(2, Verb::Buy, 10060, 200, TimeInForce::IOC)); // 150 unfilled
 
     bool accepted = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::OrderAccepted)
+        {
             accepted = true;
+        }
+    }
     ASSERT_FALSE(accepted); // IOC remainder must NOT be accepted into book
 }
 
@@ -436,10 +483,13 @@ TEST("Book: IOC with no match → nothing rests, no fill")
     book.addOrder(addLimit(1, Verb::Sell, 10060, 100, TimeInForce::IOC));
 
     bool hasFill = false;
-    for (auto &ev : events)
-        if (ev.type == TradeEvent::Type::Fill ||
-            ev.type == TradeEvent::Type::PartialFill)
+    for (auto& ev : events)
+    {
+        if (ev.type == TradeEvent::Type::Fill || ev.type == TradeEvent::Type::PartialFill)
+        {
             hasFill = true;
+        }
+    }
     ASSERT_FALSE(hasFill);
 }
 
@@ -459,9 +509,13 @@ TEST("Book: cancel existing order removes it from book")
     ASSERT_EQ(book.bestBid(), NO_PRICE);
 
     bool wasCancelled = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::OrderCancelled)
+        {
             wasCancelled = true;
+        }
+    }
     ASSERT_TRUE(wasCancelled);
 }
 
@@ -487,9 +541,13 @@ TEST("Book: cancel non-existent order → rejected, book unchanged")
     book.cancelOrder(cancel(999)); // does not exist
 
     bool wasRejected = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::OrderRejected)
+        {
             wasRejected = true;
+        }
+    }
     ASSERT_TRUE(wasRejected);
 }
 
@@ -507,9 +565,13 @@ TEST("Book: cancel middle order in level — list integrity preserved")
     events.clear();
     book.addOrder(addLimit(4, Verb::Sell, 10040, 100));
     bool order1Filled = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.passiveOrderId == 1)
+        {
             order1Filled = true;
+        }
+    }
     ASSERT_TRUE(order1Filled);
 }
 
@@ -532,9 +594,13 @@ TEST("Book: modify quantity down — preserves time priority")
     book.addOrder(addLimit(3, Verb::Sell, 10040, 80));
 
     bool order1Filled = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.passiveOrderId == 1)
+        {
             order1Filled = true;
+        }
+    }
     ASSERT_TRUE(order1Filled);
 }
 
@@ -553,9 +619,13 @@ TEST("Book: modify price — loses time priority")
     book.addOrder(addLimit(3, Verb::Sell, 10040, 100));
 
     bool order2Filled = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.passiveOrderId == 2)
+        {
             order2Filled = true;
+        }
+    }
     ASSERT_TRUE(order2Filled); // order 2 now has priority
 }
 
@@ -574,9 +644,13 @@ TEST("Book: modify quantity up — loses time priority")
     book.addOrder(addLimit(3, Verb::Sell, 10040, 100));
 
     bool order2Filled = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.passiveOrderId == 2)
+        {
             order2Filled = true;
+        }
+    }
     ASSERT_TRUE(order2Filled);
 }
 
@@ -588,9 +662,13 @@ TEST("Book: modify non-existent order → rejected")
     book.modifyOrder(modify(999, 10050, 100, Verb::Buy));
 
     bool wasRejected = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::OrderRejected)
+        {
             wasRejected = true;
+        }
+    }
     ASSERT_TRUE(wasRejected);
 }
 
@@ -606,9 +684,13 @@ TEST("Book: order with out-of-range price → rejected")
     book.addOrder(addLimit(1, Verb::Buy, 25000, 100)); // $250 > max $200
 
     bool wasRejected = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::OrderRejected)
+        {
             wasRejected = true;
+        }
+    }
     ASSERT_TRUE(wasRejected);
 }
 
@@ -620,9 +702,13 @@ TEST("Book: order with off-tick price → rejected")
     book.addOrder(addLimit(1, Verb::Buy, 10003, 100)); // not a multiple of 5
 
     bool wasRejected = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::OrderRejected)
+        {
             wasRejected = true;
+        }
+    }
     ASSERT_TRUE(wasRejected);
 }
 
@@ -635,9 +721,13 @@ TEST("Book: pool exhaustion → order rejected")
     // Use a tiny pool for this test.
     std::vector<TradeEvent> events;
     OrderBook<ArrayBitMapLocator, 2> tinyBook(
-        ArrayBitMapLocator(REL_RANGE), REL_ID,
-        [&events](const TradeEvent &ev)
-        { events.push_back(ev); });
+        ArrayBitMapLocator(REL_RANGE),
+        REL_ID,
+        [&events](const TradeEvent& ev)
+        {
+            events.push_back(ev);
+        }
+    );
 
     tinyBook.addOrder(addLimit(1, Verb::Buy, 10050, 100));
     tinyBook.addOrder(addLimit(2, Verb::Buy, 10060, 100));
@@ -645,9 +735,13 @@ TEST("Book: pool exhaustion → order rejected")
     tinyBook.addOrder(addLimit(3, Verb::Buy, 10070, 100)); // pool full
 
     bool wasRejected = false;
-    for (auto &ev : events)
+    for (auto& ev : events)
+    {
         if (ev.type == TradeEvent::Type::OrderRejected)
+        {
             wasRejected = true;
+        }
+    }
     ASSERT_TRUE(wasRejected);
 }
 
@@ -662,23 +756,26 @@ TEST("Integration: single instrument, resting + crossing order")
     cfg.firstWorkerCore = 2;
 
     MatchingCore core(cfg);
-    InstrumentConfig insCfg = {
-        1,
-        BookType::FastBook,
-        REL_RANGE};
+    InstrumentConfig insCfg = {1, BookType::FastBook, REL_RANGE};
 
     core.addInstrument(insCfg);
 
     std::atomic<int> fills{0};
-    core.setTradeCallback([&](const TradeEvent &ev)
-                          {
-        if (ev.type == TradeEvent::Type::Fill ||
-            ev.type == TradeEvent::Type::PartialFill)
-            ++fills; });
+    core.setTradeCallback(
+        [&](const TradeEvent& ev)
+        {
+            if (ev.type == TradeEvent::Type::Fill || ev.type == TradeEvent::Type::PartialFill)
+            {
+                ++fills;
+            }
+        }
+    );
     core.start();
 
     auto wait = []
-    { std::this_thread::sleep_for(std::chrono::milliseconds(30)); };
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    };
 
     core.submit(addLimit(1, Verb::Buy, 10050, 100));
     wait();
@@ -696,27 +793,29 @@ TEST("Integration: multiple instruments routed independently")
     cfg.firstWorkerCore = 2;
 
     MatchingCore core(cfg);
-    InstrumentConfig insCfg1 = {
-        1,
-        BookType::FastBook,
-        REL_RANGE};
+    InstrumentConfig insCfg1 = {1, BookType::FastBook, REL_RANGE};
 
-    InstrumentConfig insCfg2 = {
-        2,
-        BookType::FastBook,
-        {5000, 15000, 1}};
+    InstrumentConfig insCfg2 = {2, BookType::FastBook, {5000, 15000, 1}};
 
     core.addInstrument(insCfg1);
     core.addInstrument(insCfg2);
 
     std::atomic<int> fills{0};
-    core.setTradeCallback([&](const TradeEvent &ev)
-                          {
-        if (ev.type == TradeEvent::Type::Fill) ++fills; });
+    core.setTradeCallback(
+        [&](const TradeEvent& ev)
+        {
+            if (ev.type == TradeEvent::Type::Fill)
+            {
+                ++fills;
+            }
+        }
+    );
     core.start();
 
     auto wait = []
-    { std::this_thread::sleep_for(std::chrono::milliseconds(30)); };
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    };
 
     core.submit(addLimit(1, Verb::Buy, 10050, 100)); // instrument 1
     core.submit(addLimit(2, Verb::Buy, 6000, 50));   // instrument 2
@@ -740,10 +839,7 @@ TEST("Integration: submit to unknown instrument returns false")
     cfg.firstWorkerCore = 2;
     MatchingCore core(cfg);
 
-    InstrumentConfig insCfg = {
-        1,
-        BookType::FastBook,
-        REL_RANGE};
+    InstrumentConfig insCfg = {1, BookType::FastBook, REL_RANGE};
 
     core.addInstrument(insCfg);
     core.start();
@@ -763,18 +859,19 @@ TEST("Integration: stress — 10K orders, all match")
 
     MatchingCore core(cfg);
 
-    InstrumentConfig insCfg = {
-        1,
-        BookType::FastBook,
-        REL_RANGE};
+    InstrumentConfig insCfg = {1, BookType::FastBook, REL_RANGE};
     core.addInstrument(insCfg);
 
     std::atomic<uint64_t> totalFillQty{0};
-    core.setTradeCallback([&](const TradeEvent &ev)
-                          {
-        if (ev.type == TradeEvent::Type::Fill ||
-            ev.type == TradeEvent::Type::PartialFill)
-            totalFillQty += ev.fillQty; });
+    core.setTradeCallback(
+        [&](const TradeEvent& ev)
+        {
+            if (ev.type == TradeEvent::Type::Fill || ev.type == TradeEvent::Type::PartialFill)
+            {
+                totalFillQty += ev.fillQty;
+            }
+        }
+    );
     core.start();
 
     static constexpr int N = 5000;

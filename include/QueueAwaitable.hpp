@@ -1,17 +1,17 @@
 #pragma once
-#include "Task.hpp"
 #include "InstrumentContext.hpp"
+#include <coroutine>
 
 namespace engine
 {
     struct QueueAwaitable
     {
-        InstrumentContext *ctx;
+        InstrumentContext* ctx;
 
-        bool await_ready() const noexcept;
+        [[nodiscard]] bool await_ready() const noexcept;
 
         bool await_suspend(std::coroutine_handle<> handle) noexcept;
 
         void await_resume() const noexcept;
     };
-}
+} // namespace engine

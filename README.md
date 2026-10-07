@@ -300,6 +300,7 @@ Create `instruments.cfg`:
 ### 2. Generating a Workload
 
 ```bash
+# From the project root directory
 python3 gen_commands.py -n 50000 --duration-ms 10000 --seed 42 \
                         --instruments instruments.cfg -o commands.csv
 ```
@@ -317,17 +318,17 @@ python3 gen_commands.py -n 50000 --duration-ms 10000 --seed 42 \
 
 ```bash
 # Burst mode (feed as fast as possible → measures peak throughput)
-./sim_runner --commands commands.csv --instruments instruments.cfg \
+./build/sim_runner --commands commands.csv --instruments instruments.cfg \
              --output sim_results.json --burst --workers 2
 
 # Realtime mode (respect timestamps; scale with --speed)
-./sim_runner --commands commands.csv --realtime --speed 1.0
+./build/sim_runner --commands commands.csv --realtime --speed 1.0
 
 # Live TUI dashboard (updates every ~80ms during the run)
-./sim_runner --commands commands.csv --burst --tui
+./build/sim_runner --commands commands.csv --burst --tui
 
 # Watch a specific instrument's book, 20-level depth, 50ms snapshots
-./sim_runner --commands commands.csv --burst \
+./build/sim_runner --commands commands.csv --burst \
              --watch 1 --depth 20 --snapshot-ms 50
 ```
 

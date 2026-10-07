@@ -4,7 +4,7 @@
 namespace engine::core
 {
 
-    enum class CommandType : std::uint16_t
+    enum class CommandType : std::uint8_t
     {
         AddOrder = 0,
         CancelOrder = 1,
@@ -27,4 +27,4 @@ namespace engine::core
 
     static_assert(sizeof(Command) <= 64, "Command struct must fit in one cache line (64 bytes)");
 
-}
+} // namespace engine::core

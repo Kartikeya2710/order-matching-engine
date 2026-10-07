@@ -1,9 +1,10 @@
 #pragma once
-#include "PriceLevel.hpp"
-#include "Types.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+
+#include "PriceLevel.hpp"
+#include "Types.hpp"
 
 namespace engine::book
 {
@@ -28,33 +29,32 @@ namespace engine::book
         std::vector<uint64_t> bidBitMap_; // one bit per price level
         std::vector<uint64_t> askBitMap_;
 
-        uint32_t priceToIndex(types::Price price) const noexcept;
-        types::Price indexToPrice(uint32_t idx) const noexcept;
+        [[nodiscard]] uint32_t priceToIndex(types::Price price) const noexcept;
+        [[nodiscard]] types::Price indexToPrice(uint32_t idx) const noexcept;
 
-        std::vector<PriceLevel> &priceLevels(types::Verb verb) noexcept;
+        std::vector<PriceLevel>& priceLevels(types::Verb verb) noexcept;
 
-        std::vector<uint64_t> &bitMapFor(types::Verb verb) noexcept;
-        const std::vector<uint64_t> &bitMapFor(types::Verb verb) const noexcept;
+        std::vector<uint64_t>& bitMapFor(types::Verb verb) noexcept;
 
-        void setBit(std::vector<uint64_t> &bm, uint32_t idx) noexcept;
-        void clearBit(std::vector<uint64_t> &bm, uint32_t idx) noexcept;
+        void setBit(std::vector<uint64_t>& bm, uint32_t idx) noexcept;
+        void clearBit(std::vector<uint64_t>& bm, uint32_t idx) noexcept;
 
     public:
         explicit ArrayBitMapLocator(PriceRange range);
 
-        PriceLevel &getPriceLevel(types::Verb verb, types::Price price) noexcept;
+        PriceLevel& getPriceLevel(types::Verb verb, types::Price price) noexcept;
 
         void markEmpty(types::Verb side, types::Price price) noexcept;
         void markNonEmpty(types::Verb side, types::Price price) noexcept;
 
-        bool isInRange(types::Price price) const noexcept;
-        bool isAligned(types::Price price) const noexcept;
+        [[nodiscard]] bool isInRange(types::Price price) const noexcept;
+        [[nodiscard]] bool isAligned(types::Price price) const noexcept;
 
-        types::Price nextBid(types::Price price) const noexcept;
-        types::Price nextAsk(types::Price price) const noexcept;
+        [[nodiscard]] types::Price nextBid(types::Price price) const noexcept;
+        [[nodiscard]] types::Price nextAsk(types::Price price) const noexcept;
 
-        types::Price bestBid() const noexcept;
-        types::Price bestAsk() const noexcept;
+        [[nodiscard]] types::Price bestBid() const noexcept;
+        [[nodiscard]] types::Price bestAsk() const noexcept;
     };
 
-}
+} // namespace engine::book

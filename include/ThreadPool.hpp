@@ -14,12 +14,12 @@ namespace engine
     public:
         ThreadPool(size_t numWorkers, int firstCore);
 
-        void assignInstrument(InstrumentContext *ctx) noexcept;
+        void assignInstrument(InstrumentContext* ctx) noexcept;
 
         void startAll();
 
         void stopAll();
 
-        size_t workerCount() const noexcept;
+        [[nodiscard]] size_t workerCount() const noexcept;
     };
-}
+} // namespace engine

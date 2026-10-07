@@ -1,9 +1,8 @@
 #pragma once
+#include "ArrayBitMapLocator.hpp"
+#include "Types.hpp"
 #include <string>
 #include <vector>
-#include <stdexcept>
-#include "Types.hpp"
-#include "ArrayBitMapLocator.hpp"
 
 namespace engine
 {
@@ -20,6 +19,6 @@ namespace engine
         book::PriceRange priceRange;
     };
 
-    std::vector<InstrumentConfig> loadInstrumentConfig(const std::string &path);
+    std::vector<InstrumentConfig> loadInstrumentConfig(const std::string& path);
 
-}
+} // namespace engine

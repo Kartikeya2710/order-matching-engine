@@ -1,15 +1,13 @@
 #pragma once
-#include "ThreadPool.hpp"
-#include "InstrumentContext.hpp"
-#include "ArrayBitMapLocator.hpp"
 #include "InstrumentConfig.hpp"
-#include "Threading.hpp"
+#include "InstrumentContext.hpp"
+#include "ThreadPool.hpp"
 #include "TradeEvent.hpp"
-#include <unordered_map>
-#include <thread>
-#include <memory>
-#include <functional>
 #include <atomic>
+#include <functional>
+#include <memory>
+#include <thread>
+#include <unordered_map>
 
 namespace engine
 {
@@ -17,24 +15,25 @@ namespace engine
     class MatchingCore
     {
     public:
-        using TradeCallback = std::function<void(const engine::core::TradeEvent &)>;
+        using TradeCallback = std::function<void(const engine::core::TradeEvent&)>;
 
         struct Config
         {
             size_t numWorkers;
-            int firstWorkerCore;
+            int firstWorkerCore{2};
 
-            Config() : numWorkers(std::max(1u, std::thread::hardware_concurrency() - 2)),
-                       firstWorkerCore(2) {}
+            Config() : numWorkers(std::max(1u, std::thread::hardware_concurrency() - 2))
+            {
+            }
         };
 
         explicit MatchingCore(Config cfg = {});
         ~MatchingCore();
 
-        MatchingCore(const MatchingCore &) = delete;
-        MatchingCore &operator=(const MatchingCore &) = delete;
+        MatchingCore(const MatchingCore&) = delete;
+        MatchingCore& operator=(const MatchingCore&) = delete;
 
-        void loadInstruments(const std::vector<InstrumentConfig> &configs);
+        void loadInstruments(const std::vector<InstrumentConfig>& configs);
 
         void addInstrument(InstrumentConfig cfg);
 
@@ -44,12 +43,15 @@ namespace engine
 
         void stop();
 
-        bool submit(engine::core::Command cmd) noexcept;
+        bool submit(const engine::core::Command& cmd) noexcept;
 
         types::Price bestBid(types::InstrumentId id) const noexcept;
         types::Price bestAsk(types::InstrumentId id) const noexcept;
 
-        size_t instrumentCount() const noexcept { return contexts_.size(); }
+        size_t instrumentCount() const noexcept
+        {
+            return contexts_.size();
+        }
 
     private:
         void drainerLoop() noexcept;
@@ -60,11 +62,9 @@ namespace engine
 
         Config cfg_;
 
-        std::unordered_map<types::InstrumentId,
-                           std::unique_ptr<InstrumentContext>>
-            contexts_;
+        std::unordered_map<types::InstrumentId, std::unique_ptr<InstrumentContext>> contexts_;
 
         std::unique_ptr<ThreadPool> pool_;
     };
 
-}
+} // namespace engine

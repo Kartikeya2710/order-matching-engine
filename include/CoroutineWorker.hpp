@@ -1,12 +1,10 @@
 #pragma once
-#include "QueueAwaitable.hpp"
 #include "InstrumentContext.hpp"
-#include "Threading.hpp"
 #include "RingBuffer.hpp"
 #include "Task.hpp"
+#include <atomic>
 #include <thread>
 #include <vector>
-#include <atomic>
 
 namespace engine
 {
@@ -15,11 +13,11 @@ namespace engine
     public:
         explicit CoroutineWorker(int workerId, int pinnedCore);
 
-        CoroutineWorker(const CoroutineWorker &) = delete;
-        CoroutineWorker &operator=(const CoroutineWorker &) = delete;
+        CoroutineWorker(const CoroutineWorker&) = delete;
+        CoroutineWorker& operator=(const CoroutineWorker&) = delete;
         ~CoroutineWorker();
 
-        void assignInstrument(InstrumentContext *ctx);
+        void assignInstrument(InstrumentContext* ctx);
 
         void start();
 
@@ -31,14 +29,14 @@ namespace engine
         int workerId_;
         int pinnedCore_;
 
-        utils::SPSC_RingBuffer<void *, 1024> wakeQueue_;
+        utils::SPSC_RingBuffer<void*, 1024> wakeQueue_;
 
         std::vector<Task> tasks_;
-        std::vector<void *> initialReady_; // handles to run on first tick
+        std::vector<void*> initialReady_; // handles to run on first tick
 
         std::thread thread_;
         alignas(64) std::atomic<bool> running_{false};
     };
 
-    Task instrumentCoroutine(InstrumentContext *ctx) noexcept;
-}
+    Task instrumentCoroutine(InstrumentContext* ctx) noexcept;
+} // namespace engine

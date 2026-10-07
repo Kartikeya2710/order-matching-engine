@@ -7,36 +7,49 @@
 namespace engine
 {
 
-    static BookType parseBookType(const std::string &s, int lineNo)
+    static BookType parseBookType(const std::string& s, int lineNo)
     {
         if (s == "FastBook")
+        {
             return BookType::FastBook;
+        }
+
         throw std::runtime_error(
-            "instruments.cfg line " + std::to_string(lineNo) +
-            ": unknown book type '" + s + "' (valid: FastBook)");
+            "instruments.cfg line " + std::to_string(lineNo) + ": unknown book type '" + s +
+            "' (valid: FastBook)"
+        );
     }
 
-    static void validateRange(const book::PriceRange &r, int lineNo)
+    static void validateRange(const book::PriceRange& r, int lineNo)
     {
         if (r.tickSize == 0)
+        {
             throw std::runtime_error(
-                "instruments.cfg line " + std::to_string(lineNo) +
-                ": tick_size must be > 0");
+                "instruments.cfg line " + std::to_string(lineNo) + ": tick_size must be > 0"
+            );
+        }
         if (r.minPrice >= r.maxPrice)
+        {
             throw std::runtime_error(
-                "instruments.cfg line " + std::to_string(lineNo) +
-                ": min_price must be < max_price");
+                "instruments.cfg line " + std::to_string(lineNo) + ": min_price must be < max_price"
+            );
+        }
         if ((r.maxPrice - r.minPrice) % r.tickSize != 0)
+        {
             throw std::runtime_error(
                 "instruments.cfg line " + std::to_string(lineNo) +
-                ": (max_price - min_price) must be divisible by tick_size");
+                ": (max_price - min_price) must be divisible by tick_size"
+            );
+        }
     }
 
-    std::vector<InstrumentConfig> loadInstrumentConfig(const std::string &path)
+    std::vector<InstrumentConfig> loadInstrumentConfig(const std::string& path)
     {
         std::ifstream file(path);
         if (!file.is_open())
+        {
             throw std::runtime_error("cannot open config file: " + path);
+        }
 
         std::vector<InstrumentConfig> configs;
         std::string line;
@@ -48,12 +61,16 @@ namespace engine
 
             auto commentPos = line.find('#');
             if (commentPos != std::string::npos)
+            {
                 line.erase(commentPos);
+            }
 
             std::istringstream iss(line);
             std::string token;
             if (!(iss >> token))
+            {
                 continue;
+            }
 
             InstrumentConfig cfg{};
 
@@ -64,24 +81,29 @@ namespace engine
             catch (...)
             {
                 throw std::runtime_error(
-                    "instruments.cfg line " + std::to_string(lineNo) +
-                    ": invalid instrument_id '" + token + "'");
+                    "instruments.cfg line " + std::to_string(lineNo) + ": invalid instrument_id '" +
+                    token + "'"
+                );
             }
 
             std::string bookTypeStr;
             if (!(iss >> bookTypeStr))
+            {
                 throw std::runtime_error(
-                    "instruments.cfg line " + std::to_string(lineNo) +
-                    ": missing book_type");
+                    "instruments.cfg line " + std::to_string(lineNo) + ": missing book_type"
+                );
+            }
             cfg.bookType = parseBookType(bookTypeStr, lineNo);
 
-            auto readPrice = [&](const char *fieldName) -> types::Price
+            auto readPrice = [&](const char* fieldName) -> types::Price
             {
                 std::string s;
                 if (!(iss >> s))
+                {
                     throw std::runtime_error(
-                        "instruments.cfg line " + std::to_string(lineNo) +
-                        ": missing " + fieldName);
+                        "instruments.cfg line " + std::to_string(lineNo) + ": missing " + fieldName
+                    );
+                }
                 try
                 {
                     return static_cast<types::Price>(std::stoul(s));
@@ -89,8 +111,9 @@ namespace engine
                 catch (...)
                 {
                     throw std::runtime_error(
-                        "instruments.cfg line " + std::to_string(lineNo) +
-                        ": invalid " + fieldName + " '" + s + "'");
+                        "instruments.cfg line " + std::to_string(lineNo) + ": invalid " +
+                        fieldName + " '" + s + "'"
+                    );
                 }
             };
 
@@ -100,23 +123,26 @@ namespace engine
 
             validateRange(cfg.priceRange, lineNo);
 
-            for (const auto &existing : configs)
+            for (const auto& existing : configs)
             {
                 if (existing.instrumentId == cfg.instrumentId)
+                {
                     throw std::runtime_error(
                         "instruments.cfg line " + std::to_string(lineNo) +
-                        ": duplicate instrument_id " +
-                        std::to_string(cfg.instrumentId));
+                        ": duplicate instrument_id " + std::to_string(cfg.instrumentId)
+                    );
+                }
             }
 
             configs.push_back(cfg);
         }
 
         if (configs.empty())
-            throw std::runtime_error(
-                "instruments.cfg: no instruments defined in " + path);
+        {
+            throw std::runtime_error("instruments.cfg: no instruments defined in " + path);
+        }
 
         return configs;
     }
 
-}
+} // namespace engine
