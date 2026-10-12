@@ -101,24 +101,17 @@ static Command modify(OrderId oid, Price newPrice, Quantity newQty, Verb verb)
 // ArrayBitMapLocator unit tests
 // ═════════════════════════════════════════════════════════════════════════════
 
-TEST("Locator: isInRange rejects out-of-range prices")
+TEST("Locator: isValidPrice rejects out-of-range and misaligned prices")
 {
     ArrayBitMapLocator loc(REL_RANGE);
-    ASSERT_TRUE(loc.isInRange(10000));
-    ASSERT_TRUE(loc.isInRange(20000));
-    ASSERT_TRUE(loc.isInRange(15000));
-    ASSERT_FALSE(loc.isInRange(9999));
-    ASSERT_FALSE(loc.isInRange(20001));
-}
-
-TEST("Locator: isAligned rejects off-tick prices")
-{
-    PriceRange range{10000, 20000, 5}; // $0.05 tick
-    ArrayBitMapLocator loc(range);
-    ASSERT_TRUE(loc.isAligned(10000));
-    ASSERT_TRUE(loc.isAligned(10005));
-    ASSERT_FALSE(loc.isAligned(10001));
-    ASSERT_FALSE(loc.isAligned(10003));
+    ASSERT_TRUE(loc.isValidPrice(100000));
+    ASSERT_TRUE(loc.isValidPrice(200000));
+    ASSERT_TRUE(loc.isValidPrice(150000));
+    ASSERT_FALSE(loc.isValidPrice(99999));
+    ASSERT_FALSE(loc.isValidPrice(200001));
+    ASSERT_TRUE(loc.isValidPrice(100005));
+    ASSERT_FALSE(loc.isValidPrice(100001));
+    ASSERT_FALSE(loc.isValidPrice(100003));
 }
 
 TEST("Locator: bestBid returns NO_PRICE on empty book")

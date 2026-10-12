@@ -237,7 +237,7 @@ namespace engine::book
             }
 
             // Validate price before touching the book.
-            if (!locator_.isInRange(cmd.limitPrice) || !locator_.isAligned(cmd.limitPrice))
+            if (!locator_.isValidPrice(cmd.limitPrice))
             {
                 emit(
                     {.type = engine::core::TradeEvent::Type::OrderRejected,
@@ -318,6 +318,18 @@ namespace engine::book
                 return;
             }
 
+            if (!locator_.isValidPrice(cmd.limitPrice))
+            {
+                emit(
+                    {.type = engine::core::TradeEvent::Type::OrderRejected,
+                     .instrumentId = instrumentId_,
+                     .aggressorOrderId = cmd.orderId,
+                     .aggressorClientId = cmd.clientId}
+                );
+
+                return;
+            }
+
             uint32_t poolIdx = *it;
             PoolOrder& order = pool_[poolIdx];
 
@@ -327,13 +339,13 @@ namespace engine::book
                 PriceLevel& level = locator_.getPriceLevel(order.verb, order.price);
                 level.totalQty -= (order.qty - cmd.qty);
                 order.qty = cmd.qty;
-
-                return;
             }
-
-            // Everything else (price change or quantity increase): cancel + re-add.
-            removeFromBook(order.orderId, poolIdx, order.verb, order.price);
-            restInBook(cmd, cmd.qty);
+            else
+            {
+                // Everything else (price change or quantity increase): cancel + re-add.
+                removeFromBook(order.orderId, poolIdx, order.verb, order.price);
+                restInBook(cmd, cmd.qty);
+            }
         }
 
         [[nodiscard]] types::Price bestBid() const noexcept

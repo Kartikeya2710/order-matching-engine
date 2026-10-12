@@ -47,8 +47,7 @@ namespace engine::book
         void markEmpty(types::Verb side, types::Price price) noexcept;
         void markNonEmpty(types::Verb side, types::Price price) noexcept;
 
-        [[nodiscard]] bool isInRange(types::Price price) const noexcept;
-        [[nodiscard]] bool isAligned(types::Price price) const noexcept;
+        [[nodiscard]] bool isValidPrice(types::Price price) const noexcept;
 
         [[nodiscard]] types::Price nextBid(types::Price price) const noexcept;
         [[nodiscard]] types::Price nextAsk(types::Price price) const noexcept;

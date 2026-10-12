@@ -57,14 +57,10 @@ namespace engine::book
         setBit(bitMapFor(side), priceToIndex(price));
     }
 
-    bool ArrayBitMapLocator::isInRange(types::Price price) const noexcept
+    bool ArrayBitMapLocator::isValidPrice(types::Price price) const noexcept
     {
-        return price >= range_.minPrice && price <= range_.maxPrice;
-    }
-
-    bool ArrayBitMapLocator::isAligned(types::Price price) const noexcept
-    {
-        return (price - range_.minPrice) % range_.tickSize == 0;
+        return (price >= range_.minPrice && price <= range_.maxPrice) &&
+               (price - range_.minPrice) % range_.tickSize == 0;
     }
 
     types::Price ArrayBitMapLocator::bestBid() const noexcept
