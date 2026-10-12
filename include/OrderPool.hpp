@@ -70,7 +70,7 @@ namespace engine::book
         }
 
     private:
-        alignas(64) std::array<uint32_t, Capacity> slots_;
+        alignas(64) std::array<PoolOrder, Capacity> slots_;
         std::array<uint32_t, Capacity> freeStack_;
         int32_t freeTop_;
     };
