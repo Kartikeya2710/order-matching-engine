@@ -38,10 +38,27 @@ add_executable(sim_runner src/sim_runner.cpp)
 target_link_libraries(sim_runner PRIVATE engine_lib)
 target_compile_options(sim_runner PRIVATE ${COMMON_FLAGS})
 
-add_executable(tests tests/TestMain.cpp)
-target_include_directories(tests PRIVATE tests)
-target_link_libraries(tests PRIVATE engine_lib)
+enable_testing()
+
+# GoogleTest is downloaded at configure time and built with the project
+include(FetchContent)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.18.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(googletest)
+include(GoogleTest)
+
+# Every tests/*Test.cpp is part of the test binary
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "tests/*Test.cpp")
+
+add_executable(tests ${TEST_SOURCES})
+target_link_libraries(tests PRIVATE engine_lib GTest::gtest_main)
 target_compile_options(tests PRIVATE ${COMMON_FLAGS})
 
-enable_testing()
-add_test(NAME AllTests COMMAND tests)
+# Registers each TEST as its own CTest entry
+gtest_discover_tests(tests)
