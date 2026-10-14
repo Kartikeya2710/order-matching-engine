@@ -60,6 +60,8 @@ python3 visualize.py --input sim_results.json --output-dir report
 You can find the detailed design here:
 [Order Matching Engine HLD](https://docs.google.com/document/d/1j_P_XHgaPodja07eBl6gb003unVLGPQW8VrcwoMPjZ8/edit?usp=sharing)
 
+The reasoning behind individual implementation choices, and the alternatives considered, is logged in [Design Decisions](docs/DESIGN_DECISIONS.md).
+
 ## Features
 
 | Category                | Details                                                                        |
@@ -356,13 +358,3 @@ python3 visualize.py --input sim_results.json --output-dir report --dashboard-na
 ```
 
 ---
-
-## Future Improvements
-
-- [x] FOK (Fill-Or-Kill) order type
-- [ ] Order book snapshot & recovery persistence
-- [ ] Generate Level 1 and 2 market data
-- [x] Real-time visualization dashboard
-- [x] Benchmark suite with nanosecond latency histograms
-- [x] Improve order id to order index (in order pool) mapping
-- [ ] Implement `FlexBook`
