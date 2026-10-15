@@ -122,7 +122,7 @@ struct alignas(64) Command
 ```
 
 - **Need 1:** the variant's tag is set by which struct is built, so it cannot disagree with the fields. This is what makes DD-001's guarantee 1 hold inside the engine.
-- **Need 2:** the worker dispatches with `std::visit`, one handler per request type. It costs the same as a `switch` on a type field.
+- **Need 2:** the worker dispatches with `std::visit`, one handler per request type. With libstdc++ it compiles to a `switch` on the variant's index; libc++ dispatches through a table of function pointers, which costs one indirect call per request.
 - **Need 3:** `NewOrder` is 20 bytes. The variant is 24 (largest member + tag + padding), and `Command` is 64. `static_assert(sizeof(Command) <= 64)` guards the size.
 - **Need 4:** one `Command` type holds all three requests.
 
