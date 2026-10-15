@@ -32,20 +32,20 @@ namespace engine::book
             }
         }
 
-        bool canFullyFill(const engine::core::Command& cmd) noexcept
+        bool canFullyFill(const engine::core::NewOrder& order) noexcept
         {
-            const bool isBuy = (cmd.verb == types::Verb::Buy);
+            const bool isBuy = (order.side == types::Verb::Buy);
             const types::Verb passiveSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
-            types::Quantity remainingQty = cmd.qty;
+            types::Quantity remainingQty = order.qty;
 
             types::Price bestPrice = isBuy ? locator_.bestAsk() : locator_.bestBid();
 
             while (remainingQty > 0 && bestPrice != NO_PRICE)
             {
-                if (cmd.limitPrice != NO_PRICE)
+                if (order.limitPrice != NO_PRICE)
                 {
-                    if ((isBuy && bestPrice > cmd.limitPrice) ||
-                        (!isBuy && bestPrice < cmd.limitPrice))
+                    if ((isBuy && bestPrice > order.limitPrice) ||
+                        (!isBuy && bestPrice < order.limitPrice))
                     {
                         break;
                     }
@@ -56,9 +56,9 @@ namespace engine::book
                 uint32_t idx = level.head;
                 while (remainingQty > 0 && idx != NULL_IDX)
                 {
-                    PoolOrder& order = pool_[idx];
-                    remainingQty -= std::min(remainingQty, order.qty);
-                    idx = order.next;
+                    PoolOrder& passiveOrder = pool_[idx];
+                    remainingQty -= std::min(remainingQty, passiveOrder.qty);
+                    idx = passiveOrder.next;
                 }
 
                 bestPrice = isBuy ? locator_.nextAsk(bestPrice) : locator_.nextBid(bestPrice);
@@ -69,11 +69,11 @@ namespace engine::book
 
         // Run the match loop. Returns unfilled remainingQty quantity.
         // priceLimit is ignored for market orders (pass NO_PRICE).
-        types::Quantity matchAggressor(const engine::core::Command& cmd) noexcept
+        types::Quantity matchAggressor(const engine::core::NewOrder& order) noexcept
         {
-            const bool isBuy = (cmd.verb == types::Verb::Buy);
+            const bool isBuy = (order.side == types::Verb::Buy);
             const types::Verb passiveSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
-            types::Quantity remainingQty = cmd.qty;
+            types::Quantity remainingQty = order.qty;
 
             while (remainingQty > 0)
             {
@@ -82,11 +82,11 @@ namespace engine::book
                 {
                     break;
                 }
-                if (cmd.limitPrice != NO_PRICE)
+                if (order.limitPrice != NO_PRICE)
                 {
                     // if no order that can match my limit price
-                    if ((isBuy && bestPrice > cmd.limitPrice) ||
-                        (!isBuy && bestPrice < cmd.limitPrice))
+                    if ((isBuy && bestPrice > order.limitPrice) ||
+                        (!isBuy && bestPrice < order.limitPrice))
                     {
                         break;
                     }
@@ -116,9 +116,9 @@ namespace engine::book
                         .type = fulfill ? engine::core::TradeEvent::Type::Fill
                                         : engine::core::TradeEvent::Type::PartialFill,
                         .instrumentId = instrumentId_,
-                        .aggressorOrderId = cmd.orderId,
+                        .aggressorOrderId = order.orderId,
                         .passiveOrderId = passiveOrder.orderId,
-                        .aggressorClientId = cmd.clientId,
+                        .aggressorClientId = order.clientId,
                         .passiveClientId = passiveOrder.clientId,
                         .fillPrice = bestPrice,
                         .fillQty = fillQty,
@@ -142,7 +142,7 @@ namespace engine::book
             return remainingQty;
         }
 
-        bool restInBook(const engine::core::Command& cmd, types::Quantity qty) noexcept
+        bool restInBook(const PoolOrder& resting) noexcept
         {
             uint32_t poolIdx = pool_.acquire();
             if (__builtin_expect(poolIdx == UINT32_MAX, 0))
@@ -150,29 +150,20 @@ namespace engine::book
                 return false;
             }
 
-            pool_[poolIdx] = PoolOrder{
-                .orderId = cmd.orderId,
-                .verb = cmd.verb,
-                .clientId = cmd.clientId,
-                .price = cmd.limitPrice,
-                .qty = qty,
-                .tif = cmd.tif,
-                .next = NULL_IDX,
-                .prev = NULL_IDX,
-            };
+            pool_[poolIdx] = resting;
 
-            PriceLevel& level = locator_.getPriceLevel(cmd.verb, cmd.limitPrice);
+            PriceLevel& level = locator_.getPriceLevel(resting.verb, resting.price);
             appendOrderInLevel(level, poolIdx, pool_);
-            locator_.markNonEmpty(cmd.verb, cmd.limitPrice);
+            locator_.markNonEmpty(resting.verb, resting.price);
 
-            index_.insert(cmd.orderId, poolIdx);
+            index_.insert(resting.orderId, poolIdx);
 
             emit(
                 {.type = engine::core::TradeEvent::Type::OrderAccepted,
                  .instrumentId = instrumentId_,
-                 .aggressorOrderId = cmd.orderId,
-                 .aggressorClientId = cmd.clientId,
-                 .aggressorRemaining = qty}
+                 .aggressorOrderId = resting.orderId,
+                 .aggressorClientId = resting.clientId,
+                 .aggressorRemaining = resting.qty}
             );
 
             return true;
@@ -217,18 +208,18 @@ namespace engine::book
         OrderBook(OrderBook&&) noexcept = default;
         OrderBook& operator=(OrderBook&&) noexcept = default;
 
-        void addOrder(const engine::core::Command& cmd) noexcept
+        void addOrder(const engine::core::NewOrder& order) noexcept
         {
-            if (cmd.orderType == types::OrderType::Market)
+            if (order.orderType == types::OrderType::Market)
             {
-                types::Quantity remainingQty = matchAggressor(cmd);
+                types::Quantity remainingQty = matchAggressor(order);
                 if (remainingQty > 0)
                 {
                     emit(
                         {.type = engine::core::TradeEvent::Type::OrderRejected,
                          .instrumentId = instrumentId_,
-                         .aggressorOrderId = cmd.orderId,
-                         .aggressorClientId = cmd.clientId,
+                         .aggressorOrderId = order.orderId,
+                         .aggressorClientId = order.clientId,
                          .aggressorRemaining = remainingQty}
                     );
                 }
@@ -237,94 +228,101 @@ namespace engine::book
             }
 
             // Validate price before touching the book.
-            if (!locator_.isValidPrice(cmd.limitPrice))
+            if (!locator_.isValidPrice(order.limitPrice))
             {
                 emit(
                     {.type = engine::core::TradeEvent::Type::OrderRejected,
                      .instrumentId = instrumentId_,
-                     .aggressorOrderId = cmd.orderId,
-                     .aggressorClientId = cmd.clientId}
+                     .aggressorOrderId = order.orderId,
+                     .aggressorClientId = order.clientId}
                 );
 
                 return;
             }
 
             // FOK
-            if (cmd.tif == types::TimeInForce::FOK && !canFullyFill(cmd))
+            if (order.tif == types::TimeInForce::FOK && !canFullyFill(order))
             {
                 emit(
                     {.type = engine::core::TradeEvent::Type::OrderRejected,
                      .instrumentId = instrumentId_,
-                     .aggressorOrderId = cmd.orderId,
-                     .aggressorClientId = cmd.clientId}
+                     .aggressorOrderId = order.orderId,
+                     .aggressorClientId = order.clientId}
                 );
 
                 return;
             }
 
-            types::Quantity remainingQty = matchAggressor(cmd);
+            types::Quantity remainingQty = matchAggressor(order);
 
             if (remainingQty == 0)
             {
                 return; // fully filled
             }
-            if (cmd.tif == types::TimeInForce::IOC)
+            if (order.tif == types::TimeInForce::IOC)
             {
                 return; // discard unfilled
             }
 
-            restInBook(cmd, remainingQty);
+            restInBook({
+                .orderId = order.orderId,
+                .verb = order.side,
+                .clientId = order.clientId,
+                .price = order.limitPrice,
+                .qty = remainingQty,
+                .tif = order.tif,
+            });
         }
 
-        void cancelOrder(const engine::core::Command& cmd) noexcept
+        void cancelOrder(const engine::core::CancelOrder& request) noexcept
         {
-            uint32_t* it = index_.find(cmd.orderId);
+            uint32_t* it = index_.find(request.orderId);
             if (it == nullptr)
             {
                 emit(
                     {.type = engine::core::TradeEvent::Type::OrderRejected,
                      .instrumentId = instrumentId_,
-                     .aggressorOrderId = cmd.orderId,
-                     .aggressorClientId = cmd.clientId}
+                     .aggressorOrderId = request.orderId,
+                     .aggressorClientId = request.clientId}
                 );
 
                 return;
             }
             uint32_t poolIdx = *it;
-            PoolOrder& order = pool_[poolIdx]; // get stored verb/price, NOT cmd fields
+            PoolOrder& order = pool_[poolIdx];
 
             emit(
                 {.type = engine::core::TradeEvent::Type::OrderCancelled,
                  .instrumentId = instrumentId_,
-                 .aggressorOrderId = cmd.orderId,
+                 .aggressorOrderId = request.orderId,
                  .aggressorClientId = order.clientId}
             );
 
             removeFromBook(order.orderId, poolIdx, order.verb, order.price);
         }
 
-        void modifyOrder(const engine::core::Command& cmd) noexcept
+        void modifyOrder(const engine::core::ModifyOrder& request) noexcept
         {
-            uint32_t* it = index_.find(cmd.orderId);
+            uint32_t* it = index_.find(request.orderId);
             if (it == nullptr)
             {
                 emit(
                     {.type = engine::core::TradeEvent::Type::OrderRejected,
                      .instrumentId = instrumentId_,
-                     .aggressorOrderId = cmd.orderId,
-                     .aggressorClientId = cmd.clientId}
+                     .aggressorOrderId = request.orderId,
+                     .aggressorClientId = request.clientId}
                 );
 
                 return;
             }
 
-            if (!locator_.isValidPrice(cmd.limitPrice))
+            if (!locator_.isValidPrice(request.newLimitPrice))
             {
                 emit(
                     {.type = engine::core::TradeEvent::Type::OrderRejected,
                      .instrumentId = instrumentId_,
-                     .aggressorOrderId = cmd.orderId,
-                     .aggressorClientId = cmd.clientId}
+                     .aggressorOrderId = request.orderId,
+                     .aggressorClientId = request.clientId}
                 );
 
                 return;
@@ -334,17 +332,23 @@ namespace engine::book
             PoolOrder& order = pool_[poolIdx];
 
             // Quantity decrease at same price: update in place, preserve time priority.
-            if (cmd.limitPrice == order.price && cmd.verb == order.verb && cmd.qty < order.qty)
+            if (request.newLimitPrice == order.price && request.newQty < order.qty)
             {
                 PriceLevel& level = locator_.getPriceLevel(order.verb, order.price);
-                level.totalQty -= (order.qty - cmd.qty);
-                order.qty = cmd.qty;
+                level.totalQty -= (order.qty - request.newQty);
+                order.qty = request.newQty;
             }
             else
             {
                 // Everything else (price change or quantity increase): cancel + re-add.
+                // Side, owner and TIF are copied from the resting order; a modify cannot change
+                // them.
+                PoolOrder replacement = order;
+                replacement.price = request.newLimitPrice;
+                replacement.qty = request.newQty;
+
                 removeFromBook(order.orderId, poolIdx, order.verb, order.price);
-                restInBook(cmd, cmd.qty);
+                restInBook(replacement);
             }
         }
 

@@ -60,23 +60,6 @@ struct SimConfig
 };
 
 // ─── CSV parse helpers ──────────────────────────────────────────────────────
-static engine::core::CommandType parseCmdType(const std::string& s)
-{
-    if (s == "Add")
-    {
-        return engine::core::CommandType::AddOrder;
-    }
-    if (s == "Cancel")
-    {
-        return engine::core::CommandType::CancelOrder;
-    }
-    if (s == "Modify")
-    {
-        return engine::core::CommandType::ModifyOrder;
-    }
-    throw std::runtime_error("bad cmd type: " + s);
-}
-
 static engine::types::Verb parseVerb(const std::string& s)
 {
     if (s == "Buy")
@@ -128,6 +111,55 @@ static engine::types::TimeInForce parseTIF(const std::string& s)
     throw std::runtime_error("bad tif: " + s);
 }
 
+// Columns: timestamp_ns, type, order_id, instrument_id, client_id, tif,
+// order_type, verb, limit_price, stop_price, qty. Each type reads only its own
+// columns; stop_price is not used by the engine.
+static engine::core::Request parseRequest(const std::vector<std::string>& tok)
+{
+    const auto orderId = static_cast<uint32_t>(std::stoul(tok[2]));
+    const auto clientId = static_cast<uint32_t>(std::stoul(tok[4]));
+    const auto price = static_cast<uint32_t>(std::stoul(tok[8]));
+    const auto qty = static_cast<uint32_t>(std::stoul(tok[10]));
+
+    if (tok[1] == "Add")
+    {
+        return engine::core::NewOrder{
+            .orderId = orderId,
+            .clientId = clientId,
+            .side = parseVerb(tok[7]),
+            .orderType = parseOT(tok[6]),
+            .tif = parseTIF(tok[5]),
+            .limitPrice = price,
+            .qty = qty,
+        };
+    }
+    if (tok[1] == "Cancel")
+    {
+        return engine::core::CancelOrder{.orderId = orderId, .clientId = clientId};
+    }
+    if (tok[1] == "Modify")
+    {
+        return engine::core::ModifyOrder{
+            .orderId = orderId,
+            .clientId = clientId,
+            .newLimitPrice = price,
+            .newQty = qty,
+        };
+    }
+    throw std::runtime_error("bad cmd type: " + tok[1]);
+}
+
+static engine::types::OrderId orderIdOf(const engine::core::Command& cmd)
+{
+    return std::visit(
+        [](const auto& request)
+        {
+            return request.orderId;
+        },
+        cmd.request
+    );
+}
+
 std::vector<SimRow> loadCommands(const std::string& path)
 {
     std::ifstream f(path);
@@ -166,16 +198,8 @@ std::vector<SimRow> loadCommands(const std::string& path)
         {
             SimRow r{};
             r.timestamp_ns = std::stoull(tok[0]);
-            r.cmd.type = parseCmdType(tok[1]);
-            r.cmd.orderId = static_cast<uint32_t>(std::stoul(tok[2]));
             r.cmd.instrumentId = static_cast<uint32_t>(std::stoul(tok[3]));
-            r.cmd.clientId = static_cast<uint32_t>(std::stoul(tok[4]));
-            r.cmd.tif = parseTIF(tok[5]);
-            r.cmd.orderType = parseOT(tok[6]);
-            r.cmd.verb = parseVerb(tok[7]);
-            r.cmd.limitPrice = static_cast<uint32_t>(std::stoul(tok[8]));
-            r.cmd.stopPrice = static_cast<uint32_t>(std::stoul(tok[9]));
-            r.cmd.qty = static_cast<uint32_t>(std::stoul(tok[10]));
+            r.cmd.request = parseRequest(tok);
             rows.push_back(r);
         }
         catch (const std::exception& e)
@@ -242,18 +266,19 @@ Stats compute(std::vector<uint64_t>& v)
 }
 
 // ─── Name helpers for output ────────────────────────────────────────────────
-static const char* cmdName(engine::core::CommandType t)
+static const char* cmdName(const engine::core::NewOrder&)
 {
-    switch (t)
-    {
-    case engine::core::CommandType::AddOrder:
-        return "Add";
-    case engine::core::CommandType::CancelOrder:
-        return "Cancel";
-    case engine::core::CommandType::ModifyOrder:
-        return "Modify";
-    }
-    return "?";
+    return "Add";
+}
+
+static const char* cmdName(const engine::core::CancelOrder&)
+{
+    return "Cancel";
+}
+
+static const char* cmdName(const engine::core::ModifyOrder&)
+{
+    return "Modify";
 }
 
 static const char* verbName(engine::types::Verb v)
@@ -289,6 +314,24 @@ static const char* tifName(engine::types::TimeInForce t)
         return "None";
     }
     return "?";
+}
+
+// JSON fields that only some request types carry.
+static void writeRequestFields(std::ostream& out, const engine::core::NewOrder& order)
+{
+    out << ",\"verb\":\"" << verbName(order.side) << "\""
+        << ",\"order_type\":\"" << otName(order.orderType) << "\""
+        << ",\"tif\":\"" << tifName(order.tif) << "\""
+        << ",\"limit_price\":" << order.limitPrice << ",\"qty\":" << order.qty;
+}
+
+static void writeRequestFields(std::ostream&, const engine::core::CancelOrder&)
+{
+}
+
+static void writeRequestFields(std::ostream& out, const engine::core::ModifyOrder& modify)
+{
+    out << ",\"new_limit_price\":" << modify.newLimitPrice << ",\"new_qty\":" << modify.newQty;
 }
 
 static const char* evName(engine::core::TradeEvent::Type t)
@@ -619,11 +662,11 @@ int main(int argc, char* argv[])
         // Build order ID → result index map (last write wins for ids reused
         // after cancel). This is fine since events arrive in causal order
         // per instrument.
-        oid_to_idx[row.cmd.orderId] = i;
+        oid_to_idx[orderIdOf(row.cmd)] = i;
 
         if (!ok)
         {
-            std::cerr << "[SIM] submit failed cmd=" << i << " oid=" << row.cmd.orderId << "\n";
+            std::cerr << "[SIM] submit failed cmd=" << i << " oid=" << orderIdOf(row.cmd) << "\n";
         }
 
         // Book snapshots (polled by this thread between submits)
@@ -930,14 +973,18 @@ int main(int argc, char* argv[])
         out << "    {\"seq\":" << r.seq << ",\"scheduled_ns\":" << r.scheduled_ns
             << ",\"submit_wall_ns\":" << r.submit_wall_ns
             << ",\"submit_latency_ns\":" << r.submit_latency_ns
-            << ",\"e2e_latency_ns\":" << r.e2e_latency_ns << ",\"type\":\"" << cmdName(r.cmd.type)
-            << "\""
-            << ",\"order_id\":" << r.cmd.orderId << ",\"instrument_id\":" << r.cmd.instrumentId
-            << ",\"client_id\":" << r.cmd.clientId << ",\"verb\":\"" << verbName(r.cmd.verb) << "\""
-            << ",\"order_type\":\"" << otName(r.cmd.orderType) << "\""
-            << ",\"tif\":\"" << tifName(r.cmd.tif) << "\""
-            << ",\"limit_price\":" << r.cmd.limitPrice << ",\"qty\":" << r.cmd.qty
-            << ",\"events\":[";
+            << ",\"e2e_latency_ns\":" << r.e2e_latency_ns << ",\"type\":\"";
+        std::visit(
+            [&](const auto& request)
+            {
+                out << cmdName(request) << "\"" << ",\"order_id\":" << request.orderId
+                    << ",\"instrument_id\":" << r.cmd.instrumentId
+                    << ",\"client_id\":" << request.clientId;
+                writeRequestFields(out, request);
+            },
+            r.cmd.request
+        );
+        out << ",\"events\":[";
         for (size_t j = 0; j < r.events.size(); ++j)
         {
             const auto& ev = r.events[j];

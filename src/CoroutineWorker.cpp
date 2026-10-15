@@ -3,6 +3,30 @@
 
 namespace engine
 {
+    namespace
+    {
+        template <typename Book>
+        struct Dispatch
+        {
+            Book& book;
+
+            void operator()(const core::NewOrder& request) const noexcept
+            {
+                book.addOrder(request);
+            }
+
+            void operator()(const core::CancelOrder& request) const noexcept
+            {
+                book.cancelOrder(request);
+            }
+
+            void operator()(const core::ModifyOrder& request) const noexcept
+            {
+                book.modifyOrder(request);
+            }
+        };
+    } // namespace
+
     CoroutineWorker::CoroutineWorker(int workerId, int pinnedCore)
         : workerId_(workerId),
           pinnedCore_(pinnedCore)
@@ -84,27 +108,9 @@ namespace engine
             while (ctx->inputQueue.dequeue(cmd))
             {
                 std::visit(
-                    [&](auto& book) -> void
+                    [&](auto& book)
                     {
-                        switch (cmd.type)
-                        {
-                        case engine::core::CommandType::AddOrder:
-                        {
-                            return book.addOrder(cmd);
-                        }
-                        case engine::core::CommandType::CancelOrder:
-                        {
-                            return book.cancelOrder(cmd);
-                        }
-                        case engine::core::CommandType::ModifyOrder:
-                        {
-                            return book.modifyOrder(cmd);
-                        }
-                        default:
-                        {
-                            return;
-                        }
-                        }
+                        std::visit(Dispatch{book}, cmd.request);
                     },
                     ctx->book
                 );

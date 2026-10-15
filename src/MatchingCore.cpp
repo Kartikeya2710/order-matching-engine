@@ -1,5 +1,7 @@
 #include "MatchingCore.hpp"
 
+#include <cassert>
+
 namespace engine
 {
 
@@ -59,6 +61,10 @@ namespace engine
 
     bool MatchingCore::submit(const engine::core::Command& cmd) noexcept
     {
+        // The gateway guarantees these (DD-001), so they are asserts rather than rejects.
+        assert(!cmd.request.valueless_by_exception());
+        assert(engine::core::hasValidEnums(cmd));
+
         auto it = contexts_.find(cmd.instrumentId);
         if (__builtin_expect(it == contexts_.end(), 0))
         {
