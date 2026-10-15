@@ -22,7 +22,7 @@ Each entry carries one of these statuses:
 | ID                                                                                        | Decision                                                                      | Status  |
 | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------- |
 | [DD-001](#dd-001-the-gateway-checks-message-structure-the-engine-checks-values-and-state) | The gateway checks message structure; the engine checks values and book state | Keep    |
-| [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                     | One struct per request type, carried in a `std::variant`                      | Revisit |
+| [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                     | One struct per request type, carried in a `std::variant`                      | Changed |
 
 ## Request intake
 
@@ -86,7 +86,7 @@ To catch such bugs in tests without slowing release builds, the engine's entry p
 
 ### DD-002: One struct per request type, carried in a `std::variant`
 
-**Status:** Revisit
+**Status:** Changed
 
 **Where:** `Command`, the `OrderBook` request handlers, the worker's dispatch
 
@@ -110,9 +110,9 @@ The design is one struct per request type, carried in a `std::variant`:
 
 ```cpp
 struct NewOrder    { OrderId orderId; ClientId clientId; Verb side; OrderType orderType;
-                     TimeInForce tif; Price price; Quantity qty; };
+                     TimeInForce tif; Price limitPrice; Quantity qty; };
 struct CancelOrder { OrderId orderId; ClientId clientId; };
-struct ModifyOrder { OrderId orderId; ClientId clientId; Price newPrice; Quantity newQty; };
+struct ModifyOrder { OrderId orderId; ClientId clientId; Price newLimitPrice; Quantity newQty; };
 
 struct alignas(64) Command
 {
@@ -122,7 +122,7 @@ struct alignas(64) Command
 ```
 
 - **Need 1:** the variant's tag is set by which struct is built, so it cannot disagree with the fields. This is what makes DD-001's guarantee 1 hold inside the engine.
-- **Need 2:** the worker dispatches with `std::visit`, one handler per request type. It costs the same as a `switch` on a type field.
+- **Need 2:** the worker dispatches with `std::visit`, one handler per request type. With libstdc++ it compiles to a `switch` on the variant's index; libc++ dispatches through a table of function pointers, which costs one indirect call per request.
 - **Need 3:** `NewOrder` is 20 bytes. The variant is 24 (largest member + tag + padding), and `Command` is 64. `static_assert(sizeof(Command) <= 64)` guards the size.
 - **Need 4:** one `Command` type holds all three requests.
 
