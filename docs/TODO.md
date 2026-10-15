@@ -15,5 +15,7 @@ Work agreed for the engine but not yet done. Items are added only on request; ti
 - [ ] **Match modified orders on price change:** `modifyOrder()` re-adds an order at its new price without matching it, so a modify can leave the book crossed
 - [ ] **Keep priority on no-op modify:** A modify with the same price and quantity cancels and re-adds the order, losing its time priority for no change
 - [ ] **Consistent modify events:** A quantity reduction emits no event, while a price change or quantity increase emits `OrderAccepted`
+- [ ] **Reprice orders in place on modify:** A price change or quantity increase releases and re-acquires the same pool slot and erases and re-inserts the same index entry. Move the order between levels in one helper that leaves the book consistent, instead of separate unlink and link helpers. Depends on fixing the `ArrayBitMapLocator` API
+- [ ] **Order book invariant checks:** A test-only `checkInvariants()` that asserts after every operation that each indexed order sits in exactly one level, that a level is non-empty exactly when the locator lists it, and that each level's `totalQty` and `orderCount` match its orders
 - [x] **Fill-Or-Kill (FOK):** Implement FOK order type
 - [x] **Fix `OrderBook` API:** Use request-specific struct in place of a generic command
