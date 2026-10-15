@@ -12,4 +12,5 @@ Work agreed for the engine but not yet done. Items are added only on request; ti
 - [ ] **Order book snapshot and recovery:** The state of the order book should be recoverable in case of some unexpected termination of the program.
 - [ ] **Implement `FlexBook`:** A tree-based price level locator that does not constrain an instrument to a price range.
 - [ ] **Level 1 and 2 market data:** Expose level 1 and 2 market data
+- [ ] **Reject message for order pool exhaustion:** Emit suitable reject message if an order can't be accommodated in the order pool
 - [x] **Fill-Or-Kill (FOK):** Implement FOK order type
