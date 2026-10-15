@@ -2,7 +2,6 @@
 
 Work agreed for the engine but not yet done. Items are added only on request; tick them off as they land.
 
-- [ ] **Fix `OrderBook` API:** Use request-specific struct in place of a generic command
 - [ ] **Checks for positive quantity:** The order book API must check that the quantity it receives everywhere is positive (> 0)
 - [ ] **Send reject if pool is full:** An appropriate reject messgae must be sent if the pool is full
 - [ ] **Check order ownership:** `modifyOrder()` and `cancelOrder()` must check whether the client owns the order
@@ -13,4 +12,8 @@ Work agreed for the engine but not yet done. Items are added only on request; ti
 - [ ] **Implement `FlexBook`:** A tree-based price level locator that does not constrain an instrument to a price range.
 - [ ] **Level 1 and 2 market data:** Expose level 1 and 2 market data
 - [ ] **Reject message for order pool exhaustion:** Emit suitable reject message if an order can't be accommodated in the order pool
+- [ ] **Match modified orders on price change:** `modifyOrder()` re-adds an order at its new price without matching it, so a modify can leave the book crossed
+- [ ] **Keep priority on no-op modify:** A modify with the same price and quantity cancels and re-adds the order, losing its time priority for no change
+- [ ] **Consistent modify events:** A quantity reduction emits no event, while a price change or quantity increase emits `OrderAccepted`
 - [x] **Fill-Or-Kill (FOK):** Implement FOK order type
+- [x] **Fix `OrderBook` API:** Use request-specific struct in place of a generic command
