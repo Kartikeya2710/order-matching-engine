@@ -93,12 +93,6 @@ namespace engine::book
                 }
 
                 PriceLevel& level = locator_.getPriceLevel(passiveSide, bestPrice);
-                // !!!!!!!!!!!!!!!!! CATASTRPHIC FAILURE !!!!!!!!!!!!!!!!!!!!
-                if (level.empty())
-                {
-                    break; // should not happen if bitmap is correct
-                }
-
                 while (remainingQty > 0 && !level.empty())
                 {
                     uint32_t passivePoolIdx = level.head;
