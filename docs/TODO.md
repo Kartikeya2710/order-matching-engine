@@ -6,7 +6,7 @@ Work agreed for the engine but not yet done. Items are added only on request; ti
 - [ ] **Send reject if pool is full:** An appropriate reject messgae must be sent if the pool is full
 - [ ] **Check order ownership:** `modifyOrder()` and `cancelOrder()` must check whether the client owns the order
 - [ ] **Engine-assigned order IDs:** Generate our own order ID for every new order and return it in the accept message. Modify and cancel requests refer to an order by this ID
-- [ ] **Self-trade prevention:** An order should not match against a resting order belonging to the same client
+- [ ] **Self-trade prevention:** An order should not match against a resting order belonging to the same client. Implement two modes, chosen by the incoming order: cancel resting (the default) and cancel aggressor. Structure the code so that cancel both can be added later without reworking it
 - [ ] **Fix `ArrayBitMapLocator` API:** The current `ArrayBitMapLocator` API exposes methods such as `markEmpty()` and `markNonEmpty()` which do not generalise
 - [ ] **Order book snapshot and recovery:** The state of the order book should be recoverable in case of some unexpected termination of the program.
 - [ ] **Implement `FlexBook`:** A tree-based price level locator that does not constrain an instrument to a price range.
@@ -17,5 +17,10 @@ Work agreed for the engine but not yet done. Items are added only on request; ti
 - [ ] **Consistent modify events:** A quantity reduction emits no event, while a price change or quantity increase emits `OrderAccepted`
 - [ ] **Reprice orders in place on modify:** A price change or quantity increase releases and re-acquires the same pool slot and erases and re-inserts the same index entry. Move the order between levels in one helper that leaves the book consistent, instead of separate unlink and link helpers. Depends on fixing the `ArrayBitMapLocator` API
 - [ ] **Order book invariant checks:** A test-only `checkInvariants()` that asserts after every operation that each indexed order sits in exactly one level, that a level is non-empty exactly when the locator lists it, and that each level's `totalQty` and `orderCount` match its orders
+- [ ] **Faster best-price lookup in `ArrayBitMapLocator`:** `bestBid()` and `bestAsk()` scan the bitmap word by word from its edge, and `matchAggressor()` calls them again after every level it empties, so the cost grows with the price range. Cache the best index or add a summary bitmap with one bit per non-zero word
+- [ ] **Avoid division in `priceToIndex()`:** Every level lookup and every emptiness update divides by `tickSize` at runtime, which costs more than the rest of the bitmap work
+- [ ] **Cheaper FOK check:** `canFullyFill()` visits every resting order when summing each level's `totalQty` would do. Once self-trade prevention lands, what the check counts depends on the mode: under cancel resting, the crossed quantity minus the client's own orders; under cancel aggressor, only the quantity ahead of the client's first own order
+- [ ] **Keep `NO_PRICE` out of the price range:** If `maxPrice` is `UINT32_MAX`, `NO_PRICE` passes `isValidPrice()`. `validateRange()` should reject such a range
+- [ ] **Standardise the design decision format:** Re-format DD-001, DD-002 and the entry template to match DD-003: **What**, **Design**, **Needs** (each with **Requires** and **Met by**), then **Other designs**
 - [x] **Fill-Or-Kill (FOK):** Implement FOK order type
 - [x] **Fix `OrderBook` API:** Use request-specific struct in place of a generic command
