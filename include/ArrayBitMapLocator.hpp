@@ -1,8 +1,10 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
+#include "OrderPool.hpp"
 #include "PriceLevel.hpp"
 #include "Types.hpp"
 
@@ -19,6 +21,8 @@ namespace engine::book
     // Each bitmap word is 64 bits — one word covers 64 consecutive price levels.
     static constexpr uint32_t BITMAP_WORD_SIZE = 64;
 
+    // A level's bit is set exactly when the level has orders. append, remove and reduce are the
+    // only ways to change a level, and each one keeps the bitmap in sync.
     class ArrayBitMapLocator
     {
     private:
@@ -33,6 +37,7 @@ namespace engine::book
         [[nodiscard]] types::Price indexToPrice(uint32_t idx) const noexcept;
 
         std::vector<PriceLevel>& priceLevels(types::Verb verb) noexcept;
+        [[nodiscard]] const std::vector<PriceLevel>& priceLevels(types::Verb verb) const noexcept;
 
         std::vector<uint64_t>& bitMapFor(types::Verb verb) noexcept;
 
@@ -42,12 +47,16 @@ namespace engine::book
     public:
         explicit ArrayBitMapLocator(PriceRange range);
 
-        PriceLevel& getPriceLevel(types::Verb verb, types::Price price) noexcept;
-
-        void markEmpty(types::Verb side, types::Price price) noexcept;
-        void markNonEmpty(types::Verb side, types::Price price) noexcept;
-
         [[nodiscard]] bool isValidPrice(types::Price price) const noexcept;
+
+        // Read-only view of a level, for walking its queue.
+        [[nodiscard]] const PriceLevel& level(types::Verb side, types::Price price) const noexcept;
+
+        // The order's side and price are read from its slot, so they must not change while the
+        // order rests.
+        void append(uint32_t slot, std::span<PoolOrder> slots) noexcept;
+        void remove(uint32_t slot, std::span<PoolOrder> slots) noexcept;
+        void reduce(uint32_t slot, types::Quantity by, std::span<PoolOrder> slots) noexcept;
 
         [[nodiscard]] types::Price nextBid(types::Price price) const noexcept;
         [[nodiscard]] types::Price nextAsk(types::Price price) const noexcept;
