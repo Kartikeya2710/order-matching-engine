@@ -157,7 +157,7 @@ This completely eliminates trees (RB-tree), maps, and heaps — **no pointer cha
 
 ### OrderPool
 
-Fixed-capacity, pre-allocated array of `PoolOrder` structs (`alignas(64)`):
+Fixed-capacity, pre-allocated array of `PoolSlot` structs (`alignas(64)`):
 
 - **Stack-based free list** — O(1) acquire/release with zero heap allocation in the hot path.
 - **Single contiguous memory block** — maximum cache-line efficiency and zero fragmentation.
@@ -180,7 +180,7 @@ The full matching loop (`matchAggressor`) is extremely tight: bitmap → direct 
 
 ### Additional Optimizations
 
-**Cache-Friendly Layout** — All hot structures (`PoolOrder`, `PriceLevel`, `Command`, `TradeEvent`) are 64-byte aligned.
+**Cache-Friendly Layout** — All hot structures (`PoolSlot`, `PriceLevel`, `Command`, `TradeEvent`) are 64-byte aligned.
 
 **Zero Dynamic Allocation** — No allocations in the matching hot path. Uses memory pool + ring buffers throughout.
 
