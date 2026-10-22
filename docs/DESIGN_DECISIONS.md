@@ -194,9 +194,9 @@ Four types, one job each:
      ```cpp
      const PriceLevel& level(Verb side, Price price) const;   // read-only, for walking a queue
 
-     void append(uint32_t slot, std::span<PoolSlot> slots);  // rest an order at the back of its level
-     void remove(uint32_t slot, std::span<PoolSlot> slots);  // take an order out of its level
-     void reduce(uint32_t slot, Quantity by, std::span<PoolSlot> slots);  // take quantity off an order
+     void append(uint32_t slotIdx, std::span<PoolSlot> slots);  // rest an order at the back of its level
+     void remove(uint32_t slotIdx, std::span<PoolSlot> slots);  // take an order out of its level
+     void reduce(uint32_t slotIdx, Quantity by, std::span<PoolSlot> slots);  // take quantity off an order
      ```
 
    - The locator offers no generic access to a level. Every change the book makes to a level is one of these three, so the set is closed:
@@ -211,7 +211,7 @@ Four types, one job each:
 **Other designs**
 
 - **Public `PoolSlot` fields, or a mutable `OrderPool::operator[]`:** fails need 5. Any code holding a slot could change a resting order's price or side, leaving it in the wrong level, or its `qty`, leaving `totalQty` out of sync.
-- **Separate `acquire()` and `fill(slot, Order)`:** a slot could be acquired without being filled, filled without being acquired, or rewritten while it is live. Asserts could catch only the first two, and would need state per slot to do it.
+- **Separate `acquire()` and `fill(slotIdx, Order)`:** a slot could be acquired without being filled, filled without being acquired, or rewritten while it is live. Asserts could catch only the first two, and would need state per slot to do it.
 - **Two parts in `PoolSlot`, each with one friend** (`qty`, `next` and `prev` for `PriceLevel`; the rest for `OrderPool`): would also stop `PriceLevel` from writing an order's ID, side or price, but adds a type and longer call sites (`order.levelEntry.qty()`) to guard the code already trusted with the queue.
 - **Pointer links:** Using pointers makes it more difficult to capture snapshots of the order book very efficiently. It's a widely adopted design.
 - **Mutable access to levels, with the book setting and clearing bits itself:** fails need 1. Every call site has to remember the bit.

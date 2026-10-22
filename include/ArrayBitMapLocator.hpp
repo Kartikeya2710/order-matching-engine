@@ -54,9 +54,9 @@ namespace engine::book
 
         // The order's side and price are read from its slot, so they must not change while the
         // order rests.
-        void append(uint32_t slot, std::span<PoolSlot> slots) noexcept;
-        void remove(uint32_t slot, std::span<PoolSlot> slots) noexcept;
-        void reduce(uint32_t slot, types::Quantity by, std::span<PoolSlot> slots) noexcept;
+        void append(uint32_t slotIdx, std::span<PoolSlot> slots) noexcept;
+        void remove(uint32_t slotIdx, std::span<PoolSlot> slots) noexcept;
+        void reduce(uint32_t slotIdx, types::Quantity by, std::span<PoolSlot> slots) noexcept;
 
         [[nodiscard]] types::Price nextBid(types::Price price) const noexcept;
         [[nodiscard]] types::Price nextAsk(types::Price price) const noexcept;

@@ -53,12 +53,12 @@ namespace engine::book
 
                 const PriceLevel& level = locator_.level(passiveSide, bestPrice);
 
-                uint32_t slot = level.head;
-                while (remainingQty > 0 && slot != NULL_IDX)
+                uint32_t slotIdx = level.head;
+                while (remainingQty > 0 && slotIdx != NULL_IDX)
                 {
-                    const PoolSlot& passiveSlot = pool_[slot];
+                    const PoolSlot& passiveSlot = pool_[slotIdx];
                     remainingQty -= std::min(remainingQty, passiveSlot.order().qty);
-                    slot = passiveSlot.next();
+                    slotIdx = passiveSlot.next();
                 }
 
                 bestPrice = isBuy ? locator_.nextAsk(bestPrice) : locator_.nextBid(bestPrice);
@@ -96,15 +96,15 @@ namespace engine::book
                 const PriceLevel& level = locator_.level(passiveSide, bestPrice);
                 while (remainingQty > 0 && !level.empty())
                 {
-                    const uint32_t passiveSlot = level.head;
-                    const Order& passiveOrder = pool_[passiveSlot].order();
+                    const uint32_t passiveSlotIdx = level.head;
+                    const Order& passiveOrder = pool_[passiveSlotIdx].order();
                     const types::Quantity fillQty = std::min(remainingQty, passiveOrder.qty);
                     const bool passiveFilled = (fillQty == passiveOrder.qty);
 
                     remainingQty -= fillQty;
                     if (!passiveFilled)
                     {
-                        locator_.reduce(passiveSlot, fillQty, pool_.slots());
+                        locator_.reduce(passiveSlotIdx, fillQty, pool_.slots());
                     }
 
                     emit({
@@ -123,7 +123,7 @@ namespace engine::book
 
                     if (passiveFilled)
                     {
-                        removeFromBook(passiveSlot);
+                        removeFromBook(passiveSlotIdx);
                     }
                 }
             }
@@ -133,14 +133,14 @@ namespace engine::book
 
         bool restInBook(const Order& resting) noexcept
         {
-            const uint32_t slot = pool_.acquire(resting);
-            if (__builtin_expect(slot == NULL_IDX, 0))
+            const uint32_t slotIdx = pool_.acquire(resting);
+            if (__builtin_expect(slotIdx == NULL_IDX, 0))
             {
                 return false;
             }
 
-            locator_.append(slot, pool_.slots());
-            index_.insert(resting.orderId, slot);
+            locator_.append(slotIdx, pool_.slots());
+            index_.insert(resting.orderId, slotIdx);
 
             emit(
                 {.type = engine::core::TradeEvent::Type::OrderAccepted,
@@ -154,11 +154,11 @@ namespace engine::book
         }
 
         // Takes a resting order out of its level, removes it from the index, then frees its slot.
-        void removeFromBook(uint32_t slot) noexcept
+        void removeFromBook(uint32_t slotIdx) noexcept
         {
-            locator_.remove(slot, pool_.slots());
-            index_.erase(pool_[slot].order().orderId);
-            pool_.release(slot);
+            locator_.remove(slotIdx, pool_.slots());
+            index_.erase(pool_[slotIdx].order().orderId);
+            pool_.release(slotIdx);
         }
 
     public:
@@ -260,16 +260,16 @@ namespace engine::book
 
                 return;
             }
-            const uint32_t slot = *it;
+            const uint32_t slotIdx = *it;
 
             emit(
                 {.type = engine::core::TradeEvent::Type::OrderCancelled,
                  .instrumentId = instrumentId_,
                  .aggressorOrderId = request.orderId,
-                 .aggressorClientId = pool_[slot].order().clientId}
+                 .aggressorClientId = pool_[slotIdx].order().clientId}
             );
 
-            removeFromBook(slot);
+            removeFromBook(slotIdx);
         }
 
         void modifyOrder(const engine::core::ModifyOrder& request) noexcept
@@ -299,13 +299,13 @@ namespace engine::book
                 return;
             }
 
-            const uint32_t slot = *it;
-            const Order& order = pool_[slot].order();
+            const uint32_t slotIdx = *it;
+            const Order& order = pool_[slotIdx].order();
 
             // Quantity decrease at same price: update in place, preserve time priority.
             if (request.newLimitPrice == order.price && request.newQty < order.qty)
             {
-                locator_.reduce(slot, order.qty - request.newQty, pool_.slots());
+                locator_.reduce(slotIdx, order.qty - request.newQty, pool_.slots());
             }
             else
             {
@@ -316,7 +316,7 @@ namespace engine::book
                 replacement.price = request.newLimitPrice;
                 replacement.qty = request.newQty;
 
-                removeFromBook(slot);
+                removeFromBook(slotIdx);
                 restInBook(replacement);
             }
         }

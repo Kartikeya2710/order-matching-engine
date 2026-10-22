@@ -26,36 +26,40 @@ namespace engine::book
             return head == NULL_IDX;
         }
 
-        // Adds the order in `slot` to the back of the queue.
-        void append(uint32_t slot, std::span<PoolSlot> slots) noexcept
+        // Adds the order in `slotIdx` to the back of the queue.
+        void append(uint32_t slotIdx, std::span<PoolSlot> slots) noexcept
         {
-            assert(slots[slot].order_.qty > 0);
+            assert(slots[slotIdx].order_.qty > 0);
 
-            slots[slot].next_ = NULL_IDX;
-            slots[slot].prev_ = tail;
+            slots[slotIdx].next_ = NULL_IDX;
+            slots[slotIdx].prev_ = tail;
 
             if (tail != NULL_IDX)
             {
-                slots[tail].next_ = slot;
+                slots[tail].next_ = slotIdx;
             }
             else
             {
-                head = slot;
+                head = slotIdx;
             }
 
-            tail = slot;
-            totalQty += slots[slot].order_.qty;
+            tail = slotIdx;
+            totalQty += slots[slotIdx].order_.qty;
             ++orderCount;
         }
 
-        // Takes the order in `slot` out of the queue. Does not free the slot.
-        void remove(uint32_t slot, std::span<PoolSlot> slots) noexcept
+        // Takes the order in `slotIdx` out of the queue. Does not free the slot.
+        void remove(uint32_t slotIdx, std::span<PoolSlot> slots) noexcept
         {
-            const PoolSlot& removed = slots[slot];
+            const PoolSlot& removed = slots[slotIdx];
 
             // The order must be in this queue: its neighbours, or head and tail, point back at it.
-            assert(removed.prev_ != NULL_IDX ? slots[removed.prev_].next_ == slot : head == slot);
-            assert(removed.next_ != NULL_IDX ? slots[removed.next_].prev_ == slot : tail == slot);
+            assert(
+                removed.prev_ != NULL_IDX ? slots[removed.prev_].next_ == slotIdx : head == slotIdx
+            );
+            assert(
+                removed.next_ != NULL_IDX ? slots[removed.next_].prev_ == slotIdx : tail == slotIdx
+            );
 
             if (removed.prev_ != NULL_IDX)
             {
@@ -75,15 +79,15 @@ namespace engine::book
                 tail = removed.prev_;
             }
 
-            totalQty -= slots[slot].order_.qty;
+            totalQty -= slots[slotIdx].order_.qty;
             --orderCount;
         }
 
-        // Takes `by` off the order in `slot`.
+        // Takes `by` off the order in `slotIdx`.
         // Taking an order to zero must be a remove, not a reduce.
-        void reduce(uint32_t slot, types::Quantity by, std::span<PoolSlot> slots) noexcept
+        void reduce(uint32_t slotIdx, types::Quantity by, std::span<PoolSlot> slots) noexcept
         {
-            slots[slot].order_.qty -= by;
+            slots[slotIdx].order_.qty -= by;
             totalQty -= by;
         }
     };
