@@ -92,35 +92,35 @@ namespace engine::book
                 return NULL_IDX;
             }
 
-            const uint32_t idx = freeStack_[freeTop_--];
+            const uint32_t slotIdx = freeStack_[freeTop_--];
 
 #ifndef NDEBUG
-            acquired_[idx] = true;
+            acquired_[slotIdx] = true;
 #endif
 
-            PoolSlot& slot = slots_[idx];
+            PoolSlot& slot = slots_[slotIdx];
             slot.order_ = order;
             slot.next_ = NULL_IDX;
             slot.prev_ = NULL_IDX;
 
-            return idx;
+            return slotIdx;
         }
 
-        void release(uint32_t idx) noexcept
+        void release(uint32_t slotIdx) noexcept
         {
 #ifndef NDEBUG
             // Releasing a slot twice would cause two orders to share a slot
             // causing one order to override the other in the same slot
-            assert(acquired_[idx]);
-            acquired_[idx] = false;
+            assert(acquired_[slotIdx]);
+            acquired_[slotIdx] = false;
 #endif
 
-            freeStack_[++freeTop_] = idx;
+            freeStack_[++freeTop_] = slotIdx;
         }
 
-        const PoolSlot& operator[](uint32_t idx) const noexcept
+        const PoolSlot& operator[](uint32_t slotIdx) const noexcept
         {
-            return slots_[idx];
+            return slots_[slotIdx];
         }
 
         // All slots, for PriceLevel to change qty and the next/prev links between them.
