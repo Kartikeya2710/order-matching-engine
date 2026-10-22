@@ -17,6 +17,11 @@ namespace engine::book
         return (verb == types::Verb::Buy) ? bids_ : asks_;
     }
 
+    const std::vector<PriceLevel>& ArrayBitMapLocator::priceLevels(types::Verb verb) const noexcept
+    {
+        return (verb == types::Verb::Buy) ? bids_ : asks_;
+    }
+
     std::vector<uint64_t>& ArrayBitMapLocator::bitMapFor(types::Verb verb) noexcept
     {
         return (verb == types::Verb::Buy) ? bidBitMap_ : askBitMap_;
@@ -42,19 +47,39 @@ namespace engine::book
     {
     }
 
-    PriceLevel& ArrayBitMapLocator::getPriceLevel(types::Verb verb, types::Price price) noexcept
+    const PriceLevel& ArrayBitMapLocator::level(types::Verb side, types::Price price) const noexcept
     {
-        return priceLevels(verb)[priceToIndex(price)];
+        return priceLevels(side)[priceToIndex(price)];
     }
 
-    void ArrayBitMapLocator::markEmpty(types::Verb side, types::Price price) noexcept
+    void ArrayBitMapLocator::append(uint32_t slot, std::span<PoolOrder> slots) noexcept
     {
-        clearBit(bitMapFor(side), priceToIndex(price));
+        const PoolOrder& order = slots[slot];
+        const uint32_t idx = priceToIndex(order.price);
+        priceLevels(order.verb)[idx].append(slot, slots);
+        setBit(bitMapFor(order.verb), idx);
     }
 
-    void ArrayBitMapLocator::markNonEmpty(types::Verb side, types::Price price) noexcept
+    void ArrayBitMapLocator::remove(uint32_t slot, std::span<PoolOrder> slots) noexcept
     {
-        setBit(bitMapFor(side), priceToIndex(price));
+        const PoolOrder& order = slots[slot];
+        const uint32_t idx = priceToIndex(order.price);
+        PriceLevel& level = priceLevels(order.verb)[idx];
+        level.remove(slot, slots);
+        if (level.empty())
+        {
+            clearBit(bitMapFor(order.verb), idx);
+        }
+    }
+
+    void ArrayBitMapLocator::reduce(
+        uint32_t slot,
+        types::Quantity by,
+        std::span<PoolOrder> slots
+    ) noexcept
+    {
+        const PoolOrder& order = slots[slot];
+        priceLevels(order.verb)[priceToIndex(order.price)].reduce(slot, by, slots);
     }
 
     bool ArrayBitMapLocator::isValidPrice(types::Price price) const noexcept

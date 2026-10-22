@@ -32,12 +32,12 @@ namespace engine::book
             }
         }
 
-        bool canFullyFill(const engine::core::NewOrder& order) noexcept
+        [[nodiscard]] bool canFullyFill(const engine::core::NewOrder& order) const noexcept
         {
             const bool isBuy = (order.side == types::Verb::Buy);
             const types::Verb passiveSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
-            types::Quantity remainingQty = order.qty;
 
+            types::Quantity remainingQty = order.qty;
             types::Price bestPrice = isBuy ? locator_.bestAsk() : locator_.bestBid();
 
             while (remainingQty > 0 && bestPrice != NO_PRICE)
@@ -51,14 +51,14 @@ namespace engine::book
                     }
                 }
 
-                PriceLevel& level = locator_.getPriceLevel(passiveSide, bestPrice);
+                const PriceLevel& level = locator_.level(passiveSide, bestPrice);
 
-                uint32_t idx = level.head;
-                while (remainingQty > 0 && idx != NULL_IDX)
+                uint32_t slot = level.head;
+                while (remainingQty > 0 && slot != NULL_IDX)
                 {
-                    PoolOrder& passiveOrder = pool_[idx];
+                    const PoolOrder& passiveOrder = pool_[slot];
                     remainingQty -= std::min(remainingQty, passiveOrder.qty);
-                    idx = passiveOrder.next;
+                    slot = passiveOrder.levelLinks.next();
                 }
 
                 bestPrice = isBuy ? locator_.nextAsk(bestPrice) : locator_.nextBid(bestPrice);
@@ -73,11 +73,12 @@ namespace engine::book
         {
             const bool isBuy = (order.side == types::Verb::Buy);
             const types::Verb passiveSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
+
             types::Quantity remainingQty = order.qty;
 
             while (remainingQty > 0)
             {
-                types::Price bestPrice = isBuy ? locator_.bestAsk() : locator_.bestBid();
+                const types::Price bestPrice = isBuy ? locator_.bestAsk() : locator_.bestBid();
                 if (bestPrice == NO_PRICE)
                 {
                     break;
@@ -92,23 +93,23 @@ namespace engine::book
                     }
                 }
 
-                PriceLevel& level = locator_.getPriceLevel(passiveSide, bestPrice);
+                const PriceLevel& level = locator_.level(passiveSide, bestPrice);
                 while (remainingQty > 0 && !level.empty())
                 {
-                    uint32_t passivePoolIdx = level.head;
-                    PoolOrder& passiveOrder = pool_[passivePoolIdx];
-                    types::Quantity fillQty = std::min(remainingQty, passiveOrder.qty);
-
-                    // trade happens
+                    const uint32_t passiveSlot = level.head;
+                    const PoolOrder& passiveOrder = pool_[passiveSlot];
+                    const types::Quantity fillQty = std::min(remainingQty, passiveOrder.qty);
+                    const bool passiveFilled = (fillQty == passiveOrder.qty);
 
                     remainingQty -= fillQty;
-                    passiveOrder.qty -= fillQty;
-                    level.totalQty -= fillQty;
+                    if (!passiveFilled)
+                    {
+                        locator_.reduce(passiveSlot, fillQty, pool_.slots());
+                    }
 
-                    bool fulfill = passiveOrder.qty == 0;
                     emit({
-                        .type = fulfill ? engine::core::TradeEvent::Type::Fill
-                                        : engine::core::TradeEvent::Type::PartialFill,
+                        .type = passiveFilled ? engine::core::TradeEvent::Type::Fill
+                                              : engine::core::TradeEvent::Type::PartialFill,
                         .instrumentId = instrumentId_,
                         .aggressorOrderId = order.orderId,
                         .passiveOrderId = passiveOrder.orderId,
@@ -117,18 +118,12 @@ namespace engine::book
                         .fillPrice = bestPrice,
                         .fillQty = fillQty,
                         .aggressorRemaining = remainingQty,
-                        .passiveRemaining = passiveOrder.qty,
+                        .passiveRemaining = passiveFilled ? 0 : passiveOrder.qty,
                     });
 
-                    // exhausted the passive order
-                    if (fulfill)
+                    if (passiveFilled)
                     {
-                        removeFromBook(
-                            passiveOrder.orderId,
-                            passivePoolIdx,
-                            passiveSide,
-                            bestPrice
-                        );
+                        removeFromBook(passiveSlot);
                     }
                 }
             }
@@ -138,19 +133,15 @@ namespace engine::book
 
         bool restInBook(const PoolOrder& resting) noexcept
         {
-            uint32_t poolIdx = pool_.acquire();
-            if (__builtin_expect(poolIdx == UINT32_MAX, 0))
+            const uint32_t slot = pool_.acquire();
+            if (__builtin_expect(slot == NULL_IDX, 0))
             {
                 return false;
             }
 
-            pool_[poolIdx] = resting;
-
-            PriceLevel& level = locator_.getPriceLevel(resting.verb, resting.price);
-            appendOrderInLevel(level, poolIdx, pool_);
-            locator_.markNonEmpty(resting.verb, resting.price);
-
-            index_.insert(resting.orderId, poolIdx);
+            pool_[slot] = resting;
+            locator_.append(slot, pool_.slots());
+            index_.insert(resting.orderId, slot);
 
             emit(
                 {.type = engine::core::TradeEvent::Type::OrderAccepted,
@@ -163,25 +154,12 @@ namespace engine::book
             return true;
         }
 
-        // Removes an order from its price level and releases its pool slot.
-        // Does NOT touch the index — callers handle that.
-        void removeFromBook(
-            types::OrderId orderId,
-            uint32_t poolIdx,
-            types::Verb verb,
-            types::Price price
-        ) noexcept
+        // Takes a resting order out of its level, removes it from the index, then frees its slot.
+        void removeFromBook(uint32_t slot) noexcept
         {
-            PriceLevel& level = locator_.getPriceLevel(verb, price);
-            removeOrderFromLevel(level, poolIdx, pool_);
-
-            if (level.empty())
-            {
-                locator_.markEmpty(verb, price);
-            }
-
-            pool_.release(poolIdx);
-            index_.erase(orderId);
+            locator_.remove(slot, pool_.slots());
+            index_.erase(pool_[slot].orderId);
+            pool_.release(slot);
         }
 
     public:
@@ -282,17 +260,16 @@ namespace engine::book
 
                 return;
             }
-            uint32_t poolIdx = *it;
-            PoolOrder& order = pool_[poolIdx];
+            const uint32_t slot = *it;
 
             emit(
                 {.type = engine::core::TradeEvent::Type::OrderCancelled,
                  .instrumentId = instrumentId_,
                  .aggressorOrderId = request.orderId,
-                 .aggressorClientId = order.clientId}
+                 .aggressorClientId = pool_[slot].clientId}
             );
 
-            removeFromBook(order.orderId, poolIdx, order.verb, order.price);
+            removeFromBook(slot);
         }
 
         void modifyOrder(const engine::core::ModifyOrder& request) noexcept
@@ -322,15 +299,13 @@ namespace engine::book
                 return;
             }
 
-            uint32_t poolIdx = *it;
-            PoolOrder& order = pool_[poolIdx];
+            const uint32_t slot = *it;
+            const PoolOrder& order = pool_[slot];
 
             // Quantity decrease at same price: update in place, preserve time priority.
             if (request.newLimitPrice == order.price && request.newQty < order.qty)
             {
-                PriceLevel& level = locator_.getPriceLevel(order.verb, order.price);
-                level.totalQty -= (order.qty - request.newQty);
-                order.qty = request.newQty;
+                locator_.reduce(slot, order.qty - request.newQty, pool_.slots());
             }
             else
             {
@@ -341,7 +316,7 @@ namespace engine::book
                 replacement.price = request.newLimitPrice;
                 replacement.qty = request.newQty;
 
-                removeFromBook(order.orderId, poolIdx, order.verb, order.price);
+                removeFromBook(slot);
                 restInBook(replacement);
             }
         }
