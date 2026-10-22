@@ -29,7 +29,7 @@ namespace engine::book
         // Adds the order in `slot` to the back of the queue.
         void append(uint32_t slot, std::span<PoolOrder> slots) noexcept
         {
-            assert(slots[slot].qty > 0); // a 0-lot order never rests
+            assert(slots[slot].qty > 0);
 
             slots[slot].levelLinks.next_ = NULL_IDX;
             slots[slot].levelLinks.prev_ = tail;
