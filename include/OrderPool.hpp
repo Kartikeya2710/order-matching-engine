@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -13,11 +14,37 @@ namespace engine::book
 
     struct PriceLevel;
 
-    // An order's place in its price level's queue. Anyone can read it to walk the queue; only
-    // PriceLevel can change it.
-    class PriceLevelLinks
+    template <uint32_t Capacity>
+    class OrderPool;
+
+    // An order's data. The book builds it and the pool stores it.
+    struct Order
+    {
+        types::OrderId orderId = 0;
+        types::Verb verb = types::Verb::Buy;
+        types::ClientId clientId = 0;
+        types::Price price = 0;
+        types::Quantity qty = 0;
+        types::TimeInForce tif = types::TimeInForce::GTC;
+    };
+
+    // One pool slot: an order plus its links in its price level's queue. Anyone can read it.
+    // Only OrderPool writes it, when it acquires the slot, and only PriceLevel changes qty and the
+    // links while the order rests.
+    class alignas(64) PoolSlot
     {
     public:
+        PoolSlot() = default;
+        PoolSlot(const PoolSlot&) = default;
+
+        // A slot is written only by OrderPool::acquire
+        PoolSlot& operator=(const PoolSlot&) = delete;
+
+        [[nodiscard]] const Order& order() const noexcept
+        {
+            return order_;
+        }
+
         [[nodiscard]] uint32_t next() const noexcept
         {
             return next_;
@@ -29,21 +56,13 @@ namespace engine::book
         }
 
     private:
+        template <uint32_t Capacity>
+        friend class OrderPool;
         friend struct PriceLevel;
 
+        Order order_;
         uint32_t next_ = NULL_IDX;
         uint32_t prev_ = NULL_IDX;
-    };
-
-    struct alignas(64) PoolOrder
-    {
-        types::OrderId orderId = 0;
-        types::Verb verb = types::Verb::Buy;
-        types::ClientId clientId = 0;
-        types::Price price = 0;
-        types::Quantity qty = 0;
-        types::TimeInForce tif = types::TimeInForce::GTC;
-        PriceLevelLinks levelLinks;
     };
 
     template <uint32_t Capacity>
@@ -64,34 +83,48 @@ namespace engine::book
             freeTop_ = static_cast<int32_t>(Capacity) - 1;
         }
 
-        // Returns NULL_IDX if pool is exhausted.
-        [[nodiscard]] uint32_t acquire() noexcept
+        // Takes a free slot and writes `order` into it. Returns `NULL_IDX` if the pool is
+        // exhausted.
+        [[nodiscard]] uint32_t acquire(const Order& order) noexcept
         {
             if (__builtin_expect(freeTop_ < 0, 0))
             {
                 return NULL_IDX;
             }
 
-            return freeStack_[freeTop_--];
+            const uint32_t idx = freeStack_[freeTop_--];
+
+#ifndef NDEBUG
+            acquired_[idx] = true;
+#endif
+
+            PoolSlot& slot = slots_[idx];
+            slot.order_ = order;
+            slot.next_ = NULL_IDX;
+            slot.prev_ = NULL_IDX;
+
+            return idx;
         }
 
         void release(uint32_t idx) noexcept
         {
+#ifndef NDEBUG
+            // Releasing a slot twice would cause two orders to share a slot
+            // causing one order to override the other in the same slot
+            assert(acquired_[idx]);
+            acquired_[idx] = false;
+#endif
+
             freeStack_[++freeTop_] = idx;
         }
 
-        PoolOrder& operator[](uint32_t idx) noexcept
+        const PoolSlot& operator[](uint32_t idx) const noexcept
         {
             return slots_[idx];
         }
 
-        const PoolOrder& operator[](uint32_t idx) const noexcept
-        {
-            return slots_[idx];
-        }
-
-        // All slots, for code that follows the next/prev links between them.
-        [[nodiscard]] std::span<PoolOrder> slots() noexcept
+        // All slots, for PriceLevel to change qty and the next/prev links between them.
+        [[nodiscard]] std::span<PoolSlot> slots() noexcept
         {
             return slots_;
         }
@@ -102,9 +135,14 @@ namespace engine::book
         }
 
     private:
-        alignas(64) std::array<PoolOrder, Capacity> slots_;
+        alignas(64) std::array<PoolSlot, Capacity> slots_;
         std::array<uint32_t, Capacity> freeStack_;
         int32_t freeTop_;
+
+#ifndef NDEBUG
+        // For the assert in release()
+        std::array<bool, Capacity> acquired_{};
+#endif
     };
 
 } // namespace engine::book

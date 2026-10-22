@@ -21,8 +21,8 @@ namespace engine::book
     // Each bitmap word is 64 bits — one word covers 64 consecutive price levels.
     static constexpr uint32_t BITMAP_WORD_SIZE = 64;
 
-    // A level's bit is set exactly when the level has orders. append, remove and reduce are the
-    // only ways to change a level, and each one keeps the bitmap in sync.
+    // A level's bit is set exactly when the level has orders.
+    // `append()`, `remove()` and `reduce()` are the only ways to change a level
     class ArrayBitMapLocator
     {
     private:
@@ -54,9 +54,9 @@ namespace engine::book
 
         // The order's side and price are read from its slot, so they must not change while the
         // order rests.
-        void append(uint32_t slot, std::span<PoolOrder> slots) noexcept;
-        void remove(uint32_t slot, std::span<PoolOrder> slots) noexcept;
-        void reduce(uint32_t slot, types::Quantity by, std::span<PoolOrder> slots) noexcept;
+        void append(uint32_t slot, std::span<PoolSlot> slots) noexcept;
+        void remove(uint32_t slot, std::span<PoolSlot> slots) noexcept;
+        void reduce(uint32_t slot, types::Quantity by, std::span<PoolSlot> slots) noexcept;
 
         [[nodiscard]] types::Price nextBid(types::Price price) const noexcept;
         [[nodiscard]] types::Price nextAsk(types::Price price) const noexcept;
