@@ -56,9 +56,9 @@ namespace engine::book
                 uint32_t slot = level.head;
                 while (remainingQty > 0 && slot != NULL_IDX)
                 {
-                    const PoolOrder& passiveOrder = pool_[slot];
-                    remainingQty -= std::min(remainingQty, passiveOrder.qty);
-                    slot = passiveOrder.levelLinks.next();
+                    const PoolSlot& passiveSlot = pool_[slot];
+                    remainingQty -= std::min(remainingQty, passiveSlot.order().qty);
+                    slot = passiveSlot.next();
                 }
 
                 bestPrice = isBuy ? locator_.nextAsk(bestPrice) : locator_.nextBid(bestPrice);
@@ -97,7 +97,7 @@ namespace engine::book
                 while (remainingQty > 0 && !level.empty())
                 {
                     const uint32_t passiveSlot = level.head;
-                    const PoolOrder& passiveOrder = pool_[passiveSlot];
+                    const Order& passiveOrder = pool_[passiveSlot].order();
                     const types::Quantity fillQty = std::min(remainingQty, passiveOrder.qty);
                     const bool passiveFilled = (fillQty == passiveOrder.qty);
 
@@ -131,15 +131,14 @@ namespace engine::book
             return remainingQty;
         }
 
-        bool restInBook(const PoolOrder& resting) noexcept
+        bool restInBook(const Order& resting) noexcept
         {
-            const uint32_t slot = pool_.acquire();
+            const uint32_t slot = pool_.acquire(resting);
             if (__builtin_expect(slot == NULL_IDX, 0))
             {
                 return false;
             }
 
-            pool_[slot] = resting;
             locator_.append(slot, pool_.slots());
             index_.insert(resting.orderId, slot);
 
@@ -158,7 +157,7 @@ namespace engine::book
         void removeFromBook(uint32_t slot) noexcept
         {
             locator_.remove(slot, pool_.slots());
-            index_.erase(pool_[slot].orderId);
+            index_.erase(pool_[slot].order().orderId);
             pool_.release(slot);
         }
 
@@ -178,7 +177,8 @@ namespace engine::book
         OrderBook(const OrderBook&) = delete;
         OrderBook& operator=(const OrderBook&) = delete;
         OrderBook(OrderBook&&) noexcept = default;
-        OrderBook& operator=(OrderBook&&) noexcept = default;
+        // Pool slots cannot be assigned, so neither can a book.
+        OrderBook& operator=(OrderBook&&) = delete;
 
         void addOrder(const engine::core::NewOrder& order) noexcept
         {
@@ -266,7 +266,7 @@ namespace engine::book
                 {.type = engine::core::TradeEvent::Type::OrderCancelled,
                  .instrumentId = instrumentId_,
                  .aggressorOrderId = request.orderId,
-                 .aggressorClientId = pool_[slot].clientId}
+                 .aggressorClientId = pool_[slot].order().clientId}
             );
 
             removeFromBook(slot);
@@ -300,7 +300,7 @@ namespace engine::book
             }
 
             const uint32_t slot = *it;
-            const PoolOrder& order = pool_[slot];
+            const Order& order = pool_[slot].order();
 
             // Quantity decrease at same price: update in place, preserve time priority.
             if (request.newLimitPrice == order.price && request.newQty < order.qty)
@@ -312,7 +312,7 @@ namespace engine::book
                 // Everything else (price change or quantity increase): cancel + re-add.
                 // Side, owner and TIF are copied from the resting order; a modify cannot change
                 // them.
-                PoolOrder replacement = order;
+                Order replacement = order;
                 replacement.price = request.newLimitPrice;
                 replacement.qty = request.newQty;
 

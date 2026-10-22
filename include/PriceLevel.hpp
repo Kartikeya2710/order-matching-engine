@@ -13,7 +13,7 @@ namespace engine::book
     static constexpr types::Price NO_PRICE = types::Price(-1);
 
     // A FIFO queue of resting orders at one price. The queue is a linked list threaded through
-    // the pool's slots (PoolOrder::levelLinks), so each operation takes the slot array.
+    // the pool's slots (PoolSlot's next and prev), so each operation takes the slot array.
     struct PriceLevel
     {
         uint32_t head = NULL_IDX;
@@ -27,16 +27,16 @@ namespace engine::book
         }
 
         // Adds the order in `slot` to the back of the queue.
-        void append(uint32_t slot, std::span<PoolOrder> slots) noexcept
+        void append(uint32_t slot, std::span<PoolSlot> slots) noexcept
         {
-            assert(slots[slot].qty > 0);
+            assert(slots[slot].order_.qty > 0);
 
-            slots[slot].levelLinks.next_ = NULL_IDX;
-            slots[slot].levelLinks.prev_ = tail;
+            slots[slot].next_ = NULL_IDX;
+            slots[slot].prev_ = tail;
 
             if (tail != NULL_IDX)
             {
-                slots[tail].levelLinks.next_ = slot;
+                slots[tail].next_ = slot;
             }
             else
             {
@@ -44,50 +44,46 @@ namespace engine::book
             }
 
             tail = slot;
-            totalQty += slots[slot].qty;
+            totalQty += slots[slot].order_.qty;
             ++orderCount;
         }
 
         // Takes the order in `slot` out of the queue. Does not free the slot.
-        void remove(uint32_t slot, std::span<PoolOrder> slots) noexcept
+        void remove(uint32_t slot, std::span<PoolSlot> slots) noexcept
         {
-            const PriceLevelLinks& links = slots[slot].levelLinks;
+            const PoolSlot& removed = slots[slot];
 
             // The order must be in this queue: its neighbours, or head and tail, point back at it.
-            assert(
-                links.prev_ != NULL_IDX ? slots[links.prev_].levelLinks.next_ == slot : head == slot
-            );
-            assert(
-                links.next_ != NULL_IDX ? slots[links.next_].levelLinks.prev_ == slot : tail == slot
-            );
+            assert(removed.prev_ != NULL_IDX ? slots[removed.prev_].next_ == slot : head == slot);
+            assert(removed.next_ != NULL_IDX ? slots[removed.next_].prev_ == slot : tail == slot);
 
-            if (links.prev_ != NULL_IDX)
+            if (removed.prev_ != NULL_IDX)
             {
-                slots[links.prev_].levelLinks.next_ = links.next_;
+                slots[removed.prev_].next_ = removed.next_;
             }
             else
             {
-                head = links.next_;
+                head = removed.next_;
             }
 
-            if (links.next_ != NULL_IDX)
+            if (removed.next_ != NULL_IDX)
             {
-                slots[links.next_].levelLinks.prev_ = links.prev_;
+                slots[removed.next_].prev_ = removed.prev_;
             }
             else
             {
-                tail = links.prev_;
+                tail = removed.prev_;
             }
 
-            totalQty -= slots[slot].qty;
+            totalQty -= slots[slot].order_.qty;
             --orderCount;
         }
 
         // Takes `by` off the order in `slot`.
         // Taking an order to zero must be a remove, not a reduce.
-        void reduce(uint32_t slot, types::Quantity by, std::span<PoolOrder> slots) noexcept
+        void reduce(uint32_t slot, types::Quantity by, std::span<PoolSlot> slots) noexcept
         {
-            slots[slot].qty -= by;
+            slots[slot].order_.qty -= by;
             totalQty -= by;
         }
     };

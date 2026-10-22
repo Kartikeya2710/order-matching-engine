@@ -52,17 +52,17 @@ namespace engine::book
         return priceLevels(side)[priceToIndex(price)];
     }
 
-    void ArrayBitMapLocator::append(uint32_t slot, std::span<PoolOrder> slots) noexcept
+    void ArrayBitMapLocator::append(uint32_t slot, std::span<PoolSlot> slots) noexcept
     {
-        const PoolOrder& order = slots[slot];
+        const Order& order = slots[slot].order();
         const uint32_t idx = priceToIndex(order.price);
         priceLevels(order.verb)[idx].append(slot, slots);
         setBit(bitMapFor(order.verb), idx);
     }
 
-    void ArrayBitMapLocator::remove(uint32_t slot, std::span<PoolOrder> slots) noexcept
+    void ArrayBitMapLocator::remove(uint32_t slot, std::span<PoolSlot> slots) noexcept
     {
-        const PoolOrder& order = slots[slot];
+        const Order& order = slots[slot].order();
         const uint32_t idx = priceToIndex(order.price);
         PriceLevel& level = priceLevels(order.verb)[idx];
         level.remove(slot, slots);
@@ -75,10 +75,10 @@ namespace engine::book
     void ArrayBitMapLocator::reduce(
         uint32_t slot,
         types::Quantity by,
-        std::span<PoolOrder> slots
+        std::span<PoolSlot> slots
     ) noexcept
     {
-        const PoolOrder& order = slots[slot];
+        const Order& order = slots[slot].order();
         priceLevels(order.verb)[priceToIndex(order.price)].reduce(slot, by, slots);
     }
 

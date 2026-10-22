@@ -19,10 +19,11 @@ Each entry carries one of these statuses:
 
 ## Index
 
-| ID                                                                                        | Decision                                                                      | Status  |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------- |
-| [DD-001](#dd-001-the-gateway-checks-message-structure-the-engine-checks-values-and-state) | The gateway checks message structure; the engine checks values and book state | Keep    |
-| [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                     | One struct per request type, carried in a `std::variant`                      | Changed |
+| ID                                                                                        | Decision                                                                      | Status       |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------ |
+| [DD-001](#dd-001-the-gateway-checks-message-structure-the-engine-checks-values-and-state) | The gateway checks message structure; the engine checks values and book state | Keep         |
+| [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                     | One struct per request type, carried in a `std::variant`                      | Changed      |
+| [DD-003](#dd-003-price-levels-change-only-through-append-remove-and-reduce)               | Price levels change only through `append`, `remove` and `reduce`              | Keep (noted) |
 
 ## Request intake
 
@@ -131,6 +132,92 @@ struct alignas(64) Command
 - **One struct with every field, plus a type field:** fails need 1. The type and the fields are set independently, so a request can carry another type's fields and a handler can read them.
 - **One struct per request type in a hand-written tagged union:** fails need 1. The tag is set by hand, and reading the wrong union member is undefined behaviour.
 - **One queue per request type:** fails need 4. A cancel could be processed before the new order it refers to.
+
+## Price levels
+
+### DD-003: Price levels change only through `append`, `remove` and `reduce`
+
+**Status:** Keep
+
+**Where:** `ArrayBitMapLocator`, `PriceLevel`, `PoolSlot`, `OrderPool::acquire`, `OrderPool::release`, `OrderPool::slots`, `OrderBook`
+
+**What**
+
+The orders themselves live in the order pool's slots, and each level's queue is a doubly linked list threaded through those slots. So a single change to the book touches three things that must agree: the slot's queue links, the level's head, tail and totals, and the level's bit (in case of bitmap-based level locator).
+
+**Needs**
+
+1. **The bitmap always matches the levels**
+   - A level's bitmap must be in sync with the level at all times.
+   - The `OrderBook` should not be responsible of updating the bitmap everytime an operation is performed on a level.
+
+2. **The level locator keeps its orders' links in sync**
+   - The `next` and `prev` links of an order in `OrderPool` are owned and maintained by the level, i.e., the `PriceLevel`.
+   - Thus, a `PriceLevel` must be responsible for updating its orders' links on each operation
+
+3. **Every change to a level is named**
+   - The `OrderBook` sees exactly what it does to a level, and can't make a change outside this fixed set.
+   - Thus, the price level locator only exposes `append()`, `remove()` and `reduce()`.
+
+4. **The pool stays a plain slab allocator**
+   - The `OrderPool` only deals with handing out, taking back and filling slots.
+   - The `next` and `prev` links live inside the pool's slots but the operation is performed via the `PriceLevel`s. This is the very defintion of an _intrusive list_
+
+5. **Only the pool and the level write an order**
+   - No code other than `OrderPool`, when it acquires a slot, and `PriceLevel`, while the order rests, may write an order's fields.
+
+**Design**
+
+Four types, one job each:
+
+1. **`OrderPool`**
+   - Hands out and takes back slots.
+   - `acquire(Order)` takes a free slot and writes the order into it. It is the only way to write an order, so a slot cannot be acquired without an order, written without being acquired, or rewritten while it is live.
+   - `OrderBook` holds the pool as a private member, so it is the only code that can acquire a slot.
+   - The pool's only addition for the levels is `slots()`, which returns all slots as a `std::span<PoolSlot>` for `PriceLevel` to change.
+
+2. **`PoolSlot`**
+   - An `Order` (the order's ID, side, client, price, `qty` and TIF) plus the slot indexes of its neighbours in its level's queue (`next` and `prev`).
+   - Only `OrderPool` writes the whole slot in `acquire`
+   - `PriceLevel` changes `qty`, `next` and `prev` while the order rests.
+   - Copy assignment is deleted, so code holding `slots()` cannot overwrite a slot.
+
+3. **`PriceLevel`**
+   - One price's queue: `head`, `tail`, `totalQty` and `orderCount`.
+   - Its `append`, `remove` and `reduce` change the links, the order's `qty` and the level's totals together.
+   - In debug builds, `remove` asserts that the order's neighbours, or the level's `head` and `tail`, point back at it.
+
+4. **`ArrayBitMapLocator`**
+   - Owns every level on both sides and the two bitmaps.
+   - The levels are private and `level()` returns `const`, so the locator's three operations are the only path to a mutable level:
+
+     ```cpp
+     const PriceLevel& level(Verb side, Price price) const;   // read-only, for walking a queue
+
+     void append(uint32_t slot, std::span<PoolSlot> slots);  // rest an order at the back of its level
+     void remove(uint32_t slot, std::span<PoolSlot> slots);  // take an order out of its level
+     void reduce(uint32_t slot, Quantity by, std::span<PoolSlot> slots);  // take quantity off an order
+     ```
+
+   - The locator offers no generic access to a level. Every change the book makes to a level is one of these three, so the set is closed:
+
+     | Book event                                    | Operation          |
+     | --------------------------------------------- | ------------------ |
+     | A new order rests                             | `append`           |
+     | A resting order fills fully, or is cancelled  | `remove`           |
+     | A partial fill, or a modify that lowers `qty` | `reduce`           |
+     | A modify that changes price or raises `qty`   | `remove`, `append` |
+
+**Other designs**
+
+- **Public `PoolSlot` fields, or a mutable `OrderPool::operator[]`:** fails need 5. Any code holding a slot could change a resting order's price or side, leaving it in the wrong level, or its `qty`, leaving `totalQty` out of sync.
+- **Separate `acquire()` and `fill(slot, Order)`:** a slot could be acquired without being filled, filled without being acquired, or rewritten while it is live. Asserts could catch only the first two, and would need state per slot to do it.
+- **Two parts in `PoolSlot`, each with one friend** (`qty`, `next` and `prev` for `PriceLevel`; the rest for `OrderPool`): would also stop `PriceLevel` from writing an order's ID, side or price, but adds a type and longer call sites (`order.levelEntry.qty()`) to guard the code already trusted with the queue.
+- **Pointer links:** Using pointers makes it more difficult to capture snapshots of the order book very efficiently. It's a widely adopted design.
+- **Mutable access to levels, with the book setting and clearing bits itself:** fails need 1. Every call site has to remember the bit.
+- **One `edit(side, price, change)` that runs a callback on the level and re-syncs the bit afterwards:** fails need 3. The callback can make any change, and the call sites are harder to read than three named operations.
+- **Queue logic in `OrderPool`, or the pool owning the links:** fails need 4.
+- **The locator stores a reference to the pool:** The locator must not be able to acquire or release slots.
 
 <!--
 Entry template
