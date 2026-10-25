@@ -29,15 +29,15 @@ namespace engine::book
     };
 
     // One pool slot: an order plus its links in its price level's queue. Anyone can read it.
-    // Only OrderPool writes it, when it acquires the slot, and only PriceLevel changes qty and the
-    // links while the order rests.
+    // Only OrderPool writes it, when it acquires or reprices the slot, and only PriceLevel changes
+    // qty and the links while the order rests.
     class alignas(64) PoolSlot
     {
     public:
         PoolSlot() = default;
         PoolSlot(const PoolSlot&) = default;
 
-        // A slot is written only by OrderPool::acquire
+        // A slot is written only by OrderPool::acquire and OrderPool::reprice
         PoolSlot& operator=(const PoolSlot&) = delete;
 
         [[nodiscard]] const Order& order() const noexcept
@@ -116,6 +116,16 @@ namespace engine::book
 #endif
 
             freeStack_[++freeTop_] = slotIdx;
+        }
+
+        // Writes a new price and quantity into an acquired slot.
+        // The order must not be in a price level.
+        void reprice(uint32_t slotIdx, types::Price price, types::Quantity qty) noexcept
+        {
+            assert(acquired_[slotIdx]);
+
+            slots_[slotIdx].order_.price = price;
+            slots_[slotIdx].order_.qty = qty;
         }
 
         const PoolSlot& operator[](uint32_t slotIdx) const noexcept
