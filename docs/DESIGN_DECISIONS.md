@@ -19,12 +19,13 @@ Each entry carries one of these statuses:
 
 ## Index
 
-| ID                                                                                        | Decision                                                                      | Status       |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------ |
-| [DD-001](#dd-001-the-gateway-checks-message-structure-the-engine-checks-values-and-state) | The gateway checks message structure; the engine checks values and book state | Keep         |
-| [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                     | One struct per request type, carried in a `std::variant`                      | Changed      |
-| [DD-003](#dd-003-price-levels-change-only-through-append-remove-and-reduce)               | Price levels change only through `append`, `remove` and `reduce`              | Keep (noted) |
-| [DD-004](#dd-004-a-modify-that-changes-nothing-succeeds-and-keeps-the-orders-place)       | A modify that changes nothing succeeds and keeps the order's place            | Keep         |
+| ID                                                                                            | Decision                                                                      | Status       |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------ |
+| [DD-001](#dd-001-the-gateway-checks-message-structure-the-engine-checks-values-and-state)     | The gateway checks message structure; the engine checks values and book state | Keep         |
+| [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                         | One struct per request type, carried in a `std::variant`                      | Changed      |
+| [DD-003](#dd-003-price-levels-change-only-through-append-remove-and-reduce)                   | Price levels change only through `append`, `remove` and `reduce`              | Keep (noted) |
+| [DD-004](#dd-004-a-modify-that-changes-nothing-succeeds-and-keeps-the-orders-place)           | A modify that changes nothing succeeds and keeps the order's place            | Keep         |
+| [DD-005](#dd-005-a-modify-that-moves-an-order-keeps-its-slot-and-matches-first-if-it-crosses) | A modify that moves an order keeps its slot and matches first if it crosses   | Keep         |
 
 ## Request intake
 
@@ -140,7 +141,7 @@ struct alignas(64) Command
 
 **Status:** Keep
 
-**Where:** `ArrayBitMapLocator`, `PriceLevel`, `PoolSlot`, `OrderPool::acquire`, `OrderPool::release`, `OrderPool::slots`, `OrderBook`
+**Where:** `ArrayBitMapLocator`, `PriceLevel`, `PoolSlot`, `OrderPool::acquire`, `OrderPool::release`, `OrderPool::reprice`, `OrderPool::slots`, `OrderBook`
 
 **What**
 
@@ -165,7 +166,7 @@ The orders themselves live in the order pool's slots, and each level's queue is 
    - The `next` and `prev` links live inside the pool's slots but the operation is performed via the `PriceLevel`s. This is the very defintion of an _intrusive list_
 
 5. **Only the pool and the level write an order**
-   - No code other than `OrderPool`, when it acquires a slot, and `PriceLevel`, while the order rests, may write an order's fields.
+   - No code other than `OrderPool`, when it acquires or reprices a slot, and `PriceLevel`, while the order rests, may write an order's fields.
 
 **Design**
 
@@ -173,13 +174,14 @@ Four types, one job each:
 
 1. **`OrderPool`**
    - Hands out and takes back slots.
-   - `acquire(Order)` takes a free slot and writes the order into it. It is the only way to write an order, so a slot cannot be acquired without an order, written without being acquired, or rewritten while it is live.
+   - `acquire(Order)` takes a free slot and writes the order into it. It is the only way to write a whole order, so a slot cannot be acquired without an order, or written without being acquired.
+   - `reprice(slotIdx, price, qty)` writes a new price and quantity into an order that a modify has taken out of its level (DD-005).
    - `OrderBook` holds the pool as a private member, so it is the only code that can acquire a slot.
    - The pool's only addition for the levels is `slots()`, which returns all slots as a `std::span<PoolSlot>` for `PriceLevel` to change.
 
 2. **`PoolSlot`**
    - An `Order` (the order's ID, side, client, price, `qty` and TIF) plus the slot indexes of its neighbours in its level's queue (`next` and `prev`).
-   - Only `OrderPool` writes the whole slot in `acquire`
+   - Only `OrderPool` writes the whole slot in `acquire`, and the price and `qty` in `reprice`
    - `PriceLevel` changes `qty`, `next` and `prev` while the order rests.
    - Copy assignment is deleted, so code holding `slots()` cannot overwrite a slot.
 
@@ -208,6 +210,8 @@ Four types, one job each:
      | A resting order fills fully, or is cancelled  | `remove`           |
      | A partial fill, or a modify that lowers `qty` | `reduce`           |
      | A modify that changes price or raises `qty`   | `remove`, `append` |
+
+     Between that `remove` and `append`, `OrderPool::reprice` writes the order's new price and `qty`.
 
 **Other designs**
 
@@ -255,6 +259,44 @@ A modify carries the order's new price and quantity. Both can equal what the ord
 
 - **Treat it as a new order, so it loses its place** (Cboe, Nasdaq OUCH): fails needs 1 and 3. Cboe chose this to discourage messages that change nothing.
 - **Reject it** (BitMEX): fails need 2. The client has to handle an error for a request that leaves the book exactly as it wants.
+
+### DD-005: A modify that moves an order keeps its slot and matches first if it crosses
+
+**Status:** Keep
+
+**Where:** `OrderBook::modifyOrder`, `OrderBook::moveOrder`, `OrderBook::matchAggressor`, `OrderPool::reprice`
+
+**What**
+
+A modify that changes an order's price or raises its quantity sends the order to the back of a level, often at a new price. The new price can reach the other side of the book. For example, an ask rests at 101 and a bid at 100, and the bid is modified to 102.
+
+**Needs**
+
+1. **The book is never crossed**
+   - A modify whose new price reaches the other side trades like an incoming order, and only what is left rests.
+   - This is how FIX `35=G` and OUCH `'U'` work: a replace that crosses executes at once.
+
+2. **A moving order stays the same order in the book**
+   - Its pool slot and its order index entry stay; the order is not freed and acquired again.
+   - Its side, client and TIF stay; a modify cannot change them.
+
+3. **The order is in one place at a time**
+   - While it trades at its new price, it is no longer in its old level.
+
+4. **Only the pool and the level write an order** (DD-003, need 5)
+
+**Design**
+
+- `modifyOrder()` hands a price change or a quantity rise to `moveOrder(slotIdx, newPrice, newQty)`.
+- `moveOrder()` first takes the order out of its level with `remove`, which meets need 3.
+- It then matches the order at its new price and quantity through `matchAggressor()`, the same code a new order uses, which meets need 1. If the new price does not reach the other side, the match loop stops at its first price check.
+- If nothing is left, it erases the index entry and releases the slot. Otherwise `OrderPool::reprice()` writes the new price and the remaining quantity into the same slot, and `append` puts it at the back of its new level. This meets needs 2 and 4.
+- `newQty` is the order's new remaining quantity, and fills during the move come off it.
+- A modify emits only the fills it causes. How a modify reports its outcome is a separate decision.
+
+**Other designs**
+
+- **Free the slot and rest the order as a new one:** fails need 2.
 
 <!--
 Entry template
