@@ -287,7 +287,7 @@ namespace engine::book
                 return;
             }
 
-            if (!locator_.isValidPrice(request.newLimitPrice))
+            if (!locator_.isValidPrice(request.newLimitPrice) || request.newQty == 0)
             {
                 emit(
                     {.type = engine::core::TradeEvent::Type::OrderRejected,
