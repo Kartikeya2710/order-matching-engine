@@ -144,4 +144,24 @@ namespace
         EXPECT_EQ(events[0].fillQty, 10u);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
     }
+
+    TEST_F(OrderBookTest, ModifyWithSamePriceAndQtyKeepsTimePriority)
+    {
+        addLimit(1, types::Verb::Sell, 10100, 10);
+        addLimit(2, types::Verb::Sell, 10100, 10);
+        events.clear();
+
+        book.modifyOrder({.orderId = 1, .clientId = CLIENT, .newLimitPrice = 10100, .newQty = 10});
+
+        EXPECT_TRUE(events.empty());
+
+        // Order 1 is still first in the queue.
+        addLimit(3, types::Verb::Buy, 10100, 10);
+
+        ASSERT_EQ(events.size(), 1u);
+        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
+        EXPECT_EQ(events[0].passiveOrderId, 1u);
+        EXPECT_EQ(events[0].fillQty, 10u);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+    }
 } // namespace

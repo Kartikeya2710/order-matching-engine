@@ -24,6 +24,7 @@ Each entry carries one of these statuses:
 | [DD-001](#dd-001-the-gateway-checks-message-structure-the-engine-checks-values-and-state) | The gateway checks message structure; the engine checks values and book state | Keep         |
 | [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                     | One struct per request type, carried in a `std::variant`                      | Changed      |
 | [DD-003](#dd-003-price-levels-change-only-through-append-remove-and-reduce)               | Price levels change only through `append`, `remove` and `reduce`              | Keep (noted) |
+| [DD-004](#dd-004-a-modify-that-changes-nothing-succeeds-and-keeps-the-orders-place)       | A modify that changes nothing succeeds and keeps the order's place            | Keep         |
 
 ## Request intake
 
@@ -218,6 +219,42 @@ Four types, one job each:
 - **One `edit(side, price, change)` that runs a callback on the level and re-syncs the bit afterwards:** fails need 3. The callback can make any change, and the call sites are harder to read than three named operations.
 - **Queue logic in `OrderPool`, or the pool owning the links:** fails need 4.
 - **The locator stores a reference to the pool:** The locator must not be able to acquire or release slots.
+
+## Order modification
+
+### DD-004: A modify that changes nothing succeeds and keeps the order's place
+
+**Status:** Keep
+
+**Where:** `OrderBook::modifyOrder`
+
+**What**
+
+A modify carries the order's new price and quantity. Both can equal what the order already has. For example, a cancel/replace message (FIX `35=G`, OUCH `'U'`) carries the whole order, so an OMS can resend it unchanged.
+
+**Needs**
+
+1. **A modify that changes nothing leaves the book as it was**
+   - The order keeps its place in its level's queue.
+   - Nothing in the book changes, so the book's subscribers see no remove and re-add.
+
+2. **The client is not told it made an error**
+   - The request is valid, so it is accepted like any other modify, not rejected.
+
+3. **An order loses its place only when its price changes or its quantity rises**
+   - One rule for time priority, so a client can tell from its own request whether its order will move.
+
+**Design**
+
+- `modifyOrder()` runs its usual checks first (order ID known, price valid, quantity > 0), so a modify that changes nothing is checked like any other.
+- If the new price equals the order's price and the new quantity equals its remaining quantity, `modifyOrder()` returns without touching the book. This meets needs 1 and 3.
+- The request is not rejected. Its outcome is that of any accepted modify, which meets need 2. How a modify reports its outcome is a separate decision.
+- Eurex T7 behaves the same way: an order's priority resets only when its price changes, it switches between market and limit, or its quantity rises.
+
+**Other designs**
+
+- **Treat it as a new order, so it loses its place** (Cboe, Nasdaq OUCH): fails needs 1 and 3. Cboe chose this to discourage messages that change nothing.
+- **Reject it** (BitMEX): fails need 2. The client has to handle an error for a request that leaves the book exactly as it wants.
 
 <!--
 Entry template
