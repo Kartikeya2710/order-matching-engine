@@ -182,6 +182,18 @@ namespace engine::book
 
         void addOrder(const engine::core::NewOrder& order) noexcept
         {
+            if (order.qty == 0)
+            {
+                emit(
+                    {.type = engine::core::TradeEvent::Type::OrderRejected,
+                     .instrumentId = instrumentId_,
+                     .aggressorOrderId = order.orderId,
+                     .aggressorClientId = order.clientId}
+                );
+
+                return;
+            }
+
             if (order.orderType == types::OrderType::Market)
             {
                 types::Quantity remainingQty = matchAggressor(order);
