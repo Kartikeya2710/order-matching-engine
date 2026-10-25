@@ -68,10 +68,10 @@ namespace engine::book
         }
 
         // Run the match loop. Returns unfilled remainingQty quantity.
-        // priceLimit is ignored for market orders (pass NO_PRICE).
-        types::Quantity matchAggressor(const engine::core::NewOrder& order) noexcept
+        // A market order has no price limit (price is NO_PRICE).
+        types::Quantity matchAggressor(const Order& order) noexcept
         {
-            const bool isBuy = (order.side == types::Verb::Buy);
+            const bool isBuy = (order.verb == types::Verb::Buy);
             const types::Verb passiveSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
 
             types::Quantity remainingQty = order.qty;
@@ -83,11 +83,10 @@ namespace engine::book
                 {
                     break;
                 }
-                if (order.limitPrice != NO_PRICE)
+                if (order.price != NO_PRICE)
                 {
                     // if no order that can match my limit price
-                    if ((isBuy && bestPrice > order.limitPrice) ||
-                        (!isBuy && bestPrice < order.limitPrice))
+                    if ((isBuy && bestPrice > order.price) || (!isBuy && bestPrice < order.price))
                     {
                         break;
                     }
@@ -161,6 +160,29 @@ namespace engine::book
             pool_.release(slotIdx);
         }
 
+        // Moves a resting order to a new price or a higher quantity, keeping its slot and index
+        // entry. It matches first if the new price crosses, and only what is left rests.
+        void moveOrder(uint32_t slotIdx, types::Price newPrice, types::Quantity newQty) noexcept
+        {
+            locator_.remove(slotIdx, pool_.slots());
+
+            Order moved = pool_[slotIdx].order();
+            moved.price = newPrice;
+            moved.qty = newQty;
+
+            moved.qty = matchAggressor(moved);
+            if (moved.qty == 0)
+            {
+                index_.erase(moved.orderId);
+                pool_.release(slotIdx);
+            }
+            else
+            {
+                pool_.reprice(slotIdx, moved.price, moved.qty);
+                locator_.append(slotIdx, pool_.slots());
+            }
+        }
+
     public:
         explicit OrderBook(
             LevelLocator locator,
@@ -194,17 +216,26 @@ namespace engine::book
                 return;
             }
 
+            Order incoming{
+                .orderId = order.orderId,
+                .verb = order.side,
+                .clientId = order.clientId,
+                .price = order.limitPrice,
+                .qty = order.qty,
+                .tif = order.tif,
+            };
+
             if (order.orderType == types::OrderType::Market)
             {
-                types::Quantity remainingQty = matchAggressor(order);
-                if (remainingQty > 0)
+                incoming.qty = matchAggressor(incoming);
+                if (incoming.qty > 0)
                 {
                     emit(
                         {.type = engine::core::TradeEvent::Type::OrderRejected,
                          .instrumentId = instrumentId_,
                          .aggressorOrderId = order.orderId,
                          .aggressorClientId = order.clientId,
-                         .aggressorRemaining = remainingQty}
+                         .aggressorRemaining = incoming.qty}
                     );
                 }
 
@@ -237,9 +268,9 @@ namespace engine::book
                 return;
             }
 
-            types::Quantity remainingQty = matchAggressor(order);
+            incoming.qty = matchAggressor(incoming);
 
-            if (remainingQty == 0)
+            if (incoming.qty == 0)
             {
                 return; // fully filled
             }
@@ -248,14 +279,7 @@ namespace engine::book
                 return; // discard unfilled
             }
 
-            restInBook({
-                .orderId = order.orderId,
-                .verb = order.side,
-                .clientId = order.clientId,
-                .price = order.limitPrice,
-                .qty = remainingQty,
-                .tif = order.tif,
-            });
+            restInBook(incoming);
         }
 
         void cancelOrder(const engine::core::CancelOrder& request) noexcept
@@ -327,15 +351,8 @@ namespace engine::book
             }
             else
             {
-                // Everything else (price change or quantity increase): cancel + re-add.
-                // Side, owner and TIF are copied from the resting order; a modify cannot change
-                // them.
-                Order replacement = order;
-                replacement.price = request.newLimitPrice;
-                replacement.qty = request.newQty;
-
-                removeFromBook(slotIdx);
-                restInBook(replacement);
+                // Price change or quantity increase
+                moveOrder(slotIdx, request.newLimitPrice, request.newQty);
             }
         }
 
