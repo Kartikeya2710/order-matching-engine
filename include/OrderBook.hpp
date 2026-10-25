@@ -314,6 +314,12 @@ namespace engine::book
             const uint32_t slotIdx = *it;
             const Order& order = pool_[slotIdx].order();
 
+            // Same price and quantity: order keeps its place.
+            if (request.newLimitPrice == order.price && request.newQty == order.qty)
+            {
+                return;
+            }
+
             // Quantity decrease at same price: update in place, preserve time priority.
             if (request.newLimitPrice == order.price && request.newQty < order.qty)
             {
