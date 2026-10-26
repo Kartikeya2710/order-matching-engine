@@ -30,11 +30,18 @@ namespace engine::book
         size_t numLevels_;
         std::vector<PriceLevel> bids_;
         std::vector<PriceLevel> asks_;
-        std::vector<uint64_t> bidBitMap_; // one bit per price level
+        std::vector<uint64_t> bidBitMap_;
         std::vector<uint64_t> askBitMap_;
+        // NO_PRICE when the side is empty
+        types::Price bestBid_;
+        types::Price bestAsk_;
 
         [[nodiscard]] uint32_t priceToIndex(types::Price price) const noexcept;
         [[nodiscard]] types::Price indexToPrice(uint32_t idx) const noexcept;
+
+        // Nearest live level strictly below / above `idx`, or NO_PRICE if there is none.
+        [[nodiscard]] types::Price highestBidBelow(uint32_t idx) const noexcept;
+        [[nodiscard]] types::Price lowestAskAbove(uint32_t idx) const noexcept;
 
         std::vector<PriceLevel>& priceLevels(types::Verb verb) noexcept;
         [[nodiscard]] const std::vector<PriceLevel>& priceLevels(types::Verb verb) const noexcept;

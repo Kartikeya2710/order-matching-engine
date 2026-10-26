@@ -355,4 +355,109 @@ namespace
         EXPECT_EQ(book.bestBid(), 10100u);
         EXPECT_EQ(book.bestAsk(), 10105u);
     }
+
+    // Bitmap word boundaries. Level index i is price 10000 + 5i, and each word holds 64 levels:
+    // 10315 is bit 63 of word 0, 10320 is bit 0 of word 1 and 10640 is bit 0 of word 2.
+
+    TEST_F(OrderBookTest, BestBidMovesToPreviousWordWhenBestLevelEmpties)
+    {
+        addLimit(1, types::Verb::Buy, 10320, 10);
+        addLimit(2, types::Verb::Buy, 10315, 10);
+        EXPECT_EQ(book.bestBid(), 10320u);
+
+        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+
+        EXPECT_EQ(book.bestBid(), 10315u);
+    }
+
+    TEST_F(OrderBookTest, BestAskMovesToNextWordWhenBestLevelEmpties)
+    {
+        addLimit(1, types::Verb::Sell, 10315, 10);
+        addLimit(2, types::Verb::Sell, 10320, 10);
+        EXPECT_EQ(book.bestAsk(), 10315u);
+
+        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+
+        EXPECT_EQ(book.bestAsk(), 10320u);
+    }
+
+    TEST_F(OrderBookTest, BestBidSkipsEmptyWordsWhenBestLevelEmpties)
+    {
+        addLimit(1, types::Verb::Buy, 10640, 10);
+        addLimit(2, types::Verb::Buy, 10000, 10);
+        EXPECT_EQ(book.bestBid(), 10640u);
+
+        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+
+        EXPECT_EQ(book.bestBid(), 10000u);
+    }
+
+    TEST_F(OrderBookTest, BestAskSkipsEmptyWordsWhenBestLevelEmpties)
+    {
+        addLimit(1, types::Verb::Sell, 10000, 10);
+        addLimit(2, types::Verb::Sell, 10640, 10);
+        EXPECT_EQ(book.bestAsk(), 10000u);
+
+        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+
+        EXPECT_EQ(book.bestAsk(), 10640u);
+    }
+
+    TEST_F(OrderBookTest, BestPricesClearWhenLevelsAtRangeEdgesEmpty)
+    {
+        addLimit(1, types::Verb::Buy, 10000, 10);
+        addLimit(2, types::Verb::Sell, 20000, 10);
+        EXPECT_EQ(book.bestBid(), 10000u);
+        EXPECT_EQ(book.bestAsk(), 20000u);
+
+        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+        book.cancelOrder({.orderId = 2, .clientId = CLIENT});
+
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    // The FOK check walks levels with nextBid()/nextAsk(), so each level must be counted once.
+
+    TEST_F(OrderBookTest, FokSellWalksBidLevelsAcrossWordBoundary)
+    {
+        addLimit(1, types::Verb::Buy, 10320, 5);
+        addLimit(2, types::Verb::Buy, 10315, 5);
+        events.clear();
+
+        book.addOrder(
+            {.orderId = 3,
+             .clientId = CLIENT,
+             .side = types::Verb::Sell,
+             .orderType = types::OrderType::Limit,
+             .tif = types::TimeInForce::FOK,
+             .limitPrice = 10315,
+             .qty = 11}
+        );
+
+        ASSERT_EQ(events.size(), 1u);
+        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        EXPECT_EQ(book.bestBid(), 10320u);
+    }
+
+    TEST_F(OrderBookTest, FokBuyWalksAskLevelsAcrossWordBoundary)
+    {
+        addLimit(1, types::Verb::Sell, 10315, 5);
+        addLimit(2, types::Verb::Sell, 10320, 5);
+        events.clear();
+
+        book.addOrder(
+            {.orderId = 3,
+             .clientId = CLIENT,
+             .side = types::Verb::Buy,
+             .orderType = types::OrderType::Limit,
+             .tif = types::TimeInForce::FOK,
+             .limitPrice = 10320,
+             .qty = 11}
+        );
+
+        ASSERT_EQ(events.size(), 1u);
+        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        EXPECT_EQ(book.bestAsk(), 10315u);
+    }
 } // namespace

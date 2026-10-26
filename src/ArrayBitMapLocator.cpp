@@ -1,4 +1,5 @@
 #include "ArrayBitMapLocator.hpp"
+#include <bit>
 
 namespace engine::book
 {
@@ -43,7 +44,9 @@ namespace engine::book
           bids_(numLevels_),
           asks_(numLevels_),
           bidBitMap_((numLevels_ + BITMAP_WORD_SIZE - 1) / BITMAP_WORD_SIZE, uint64_t{0}),
-          askBitMap_((numLevels_ + BITMAP_WORD_SIZE - 1) / BITMAP_WORD_SIZE, uint64_t{0})
+          askBitMap_((numLevels_ + BITMAP_WORD_SIZE - 1) / BITMAP_WORD_SIZE, uint64_t{0}),
+          bestBid_(NO_PRICE),
+          bestAsk_(NO_PRICE)
     {
     }
 
@@ -58,6 +61,18 @@ namespace engine::book
         const uint32_t idx = priceToIndex(order.price);
         priceLevels(order.verb)[idx].append(slotIdx, slots);
         setBit(bitMapFor(order.verb), idx);
+
+        if (order.verb == types::Verb::Buy)
+        {
+            if (bestBid_ == NO_PRICE || order.price > bestBid_)
+            {
+                bestBid_ = order.price;
+            }
+        }
+        else if (order.price < bestAsk_) // NO_PRICE is the largest Price, so no extra check
+        {
+            bestAsk_ = order.price;
+        }
     }
 
     void ArrayBitMapLocator::remove(uint32_t slotIdx, std::span<PoolSlot> slots) noexcept
@@ -66,9 +81,23 @@ namespace engine::book
         const uint32_t idx = priceToIndex(order.price);
         PriceLevel& level = priceLevels(order.verb)[idx];
         level.remove(slotIdx, slots);
+
         if (level.empty())
         {
             clearBit(bitMapFor(order.verb), idx);
+
+            // Only emptying the best level moves the best price.
+            if (order.verb == types::Verb::Buy)
+            {
+                if (order.price == bestBid_)
+                {
+                    bestBid_ = highestBidBelow(idx);
+                }
+            }
+            else if (order.price == bestAsk_)
+            {
+                bestAsk_ = lowestAskAbove(idx);
+            }
         }
     }
 
@@ -90,32 +119,12 @@ namespace engine::book
 
     types::Price ArrayBitMapLocator::bestBid() const noexcept
     {
-        for (int w = static_cast<int>(bidBitMap_.size()) - 1; w >= 0; --w)
-        {
-            if (bidBitMap_[w] == 0)
-            {
-                continue;
-            }
-            std::uint32_t bit = 63u - static_cast<std::uint32_t>(__builtin_clzll(bidBitMap_[w]));
-            return indexToPrice(static_cast<std::uint32_t>(w) * BITMAP_WORD_SIZE + bit);
-        }
-
-        return NO_PRICE;
+        return bestBid_;
     }
 
     types::Price ArrayBitMapLocator::bestAsk() const noexcept
     {
-        for (size_t w = 0; w < askBitMap_.size(); ++w)
-        {
-            if (askBitMap_[w] == 0)
-            {
-                continue;
-            }
-            auto bit = static_cast<std::uint32_t>(__builtin_ctzll(askBitMap_[w]));
-            return indexToPrice(static_cast<std::uint32_t>(w) * BITMAP_WORD_SIZE + bit);
-        }
-
-        return NO_PRICE;
+        return bestAsk_;
     }
 
     types::Price ArrayBitMapLocator::nextBid(types::Price price) const noexcept
@@ -124,48 +133,47 @@ namespace engine::book
         {
             return NO_PRICE;
         }
-
-        uint32_t startIdx = priceToIndex(price) - 1;
-        int startWord = static_cast<int>(startIdx / BITMAP_WORD_SIZE);
-        uint32_t startBit = startIdx % BITMAP_WORD_SIZE;
-        uint64_t mask = (startBit == 63u) ? ~uint64_t{0} : (uint64_t{1} << (startBit + 1)) - 1;
-
-        for (int w = startWord; w >= 0; --w, mask = ~uint64_t{0})
-        {
-            uint64_t word = bidBitMap_[w] & mask;
-            if (word == 0)
-            {
-                continue;
-            }
-
-            uint32_t bit = 63u - static_cast<uint32_t>(__builtin_clzll(word));
-            return indexToPrice(static_cast<uint32_t>(w) * BITMAP_WORD_SIZE + bit);
-        }
-
-        return NO_PRICE;
+        return highestBidBelow(priceToIndex(price));
     }
 
     types::Price ArrayBitMapLocator::nextAsk(types::Price price) const noexcept
     {
-        uint32_t startIdx = priceToIndex(price) + 1;
-        if (startIdx >= static_cast<uint32_t>(numLevels_))
+        if (price >= range_.maxPrice)
         {
             return NO_PRICE;
         }
+        return lowestAskAbove(priceToIndex(price));
+    }
 
-        size_t startWord = startIdx / BITMAP_WORD_SIZE;
-        uint32_t startBit = startIdx % BITMAP_WORD_SIZE;
-        uint64_t mask = ~((uint64_t{1} << startBit) - 1);
-
-        for (size_t w = startWord; w < askBitMap_.size(); ++w, mask = ~uint64_t{0})
+    types::Price ArrayBitMapLocator::highestBidBelow(uint32_t idx) const noexcept
+    {
+        uint32_t w = idx / BITMAP_WORD_SIZE;
+        // Set the bits below the price level within the word.
+        uint64_t word = bidBitMap_[w] & ((uint64_t{1} << (idx % BITMAP_WORD_SIZE)) - 1);
+        while (word == 0)
         {
-            uint64_t word = askBitMap_[w] & mask;
-            if (word == 0)
+            if (w == 0)
             {
-                continue;
+                return NO_PRICE;
             }
-            auto bit = static_cast<uint32_t>(__builtin_ctzll(word));
-            return indexToPrice(static_cast<uint32_t>(w) * BITMAP_WORD_SIZE + bit);
+            word = bidBitMap_[--w];
+        }
+        return indexToPrice(w * BITMAP_WORD_SIZE + std::bit_width(word) - 1);
+    }
+
+    types::Price ArrayBitMapLocator::lowestAskAbove(uint32_t idx) const noexcept
+    {
+        // Set the bits above the price level within the word. It is 0 when b is 63. Higher words
+        // keep every bit.
+        uint64_t mask = ~uint64_t{1} << (idx % BITMAP_WORD_SIZE);
+
+        for (uint32_t w = idx / BITMAP_WORD_SIZE; w < askBitMap_.size(); ++w, mask = ~uint64_t{0})
+        {
+            const uint64_t word = askBitMap_[w] & mask;
+            if (word != 0)
+            {
+                return indexToPrice(w * BITMAP_WORD_SIZE + std::countr_zero(word));
+            }
         }
 
         return NO_PRICE;
