@@ -1,15 +1,18 @@
 #include "ArrayBitMapLocator.hpp"
 #include <bit>
+#include <cassert>
 
 namespace engine::book
 {
     uint32_t ArrayBitMapLocator::priceToIndex(types::Price price) const noexcept
     {
+        assert(isValidPrice(price));
         return static_cast<uint32_t>((price - range_.minPrice) / range_.tickSize);
     }
 
     types::Price ArrayBitMapLocator::indexToPrice(uint32_t idx) const noexcept
     {
+        assert(idx < numLevels_);
         return range_.minPrice + idx * range_.tickSize;
     }
 
@@ -30,11 +33,13 @@ namespace engine::book
 
     void ArrayBitMapLocator::setBit(std::vector<uint64_t>& bm, uint32_t idx) noexcept
     {
+        assert(idx < numLevels_);
         bm[idx / BITMAP_WORD_SIZE] |= (uint64_t{1} << (idx % BITMAP_WORD_SIZE));
     }
 
     void ArrayBitMapLocator::clearBit(std::vector<uint64_t>& bm, uint32_t idx) noexcept
     {
+        assert(idx < numLevels_);
         bm[idx / BITMAP_WORD_SIZE] &= ~(uint64_t{1} << (idx % BITMAP_WORD_SIZE));
     }
 
@@ -127,26 +132,21 @@ namespace engine::book
         return bestAsk_;
     }
 
+    // At minPrice / maxPrice the scan finds no level and returns NO_PRICE, so the edges need no
+    // check of their own.
     types::Price ArrayBitMapLocator::nextBid(types::Price price) const noexcept
     {
-        if (price <= range_.minPrice)
-        {
-            return NO_PRICE;
-        }
         return highestBidBelow(priceToIndex(price));
     }
 
     types::Price ArrayBitMapLocator::nextAsk(types::Price price) const noexcept
     {
-        if (price >= range_.maxPrice)
-        {
-            return NO_PRICE;
-        }
         return lowestAskAbove(priceToIndex(price));
     }
 
     types::Price ArrayBitMapLocator::highestBidBelow(uint32_t idx) const noexcept
     {
+        assert(idx < numLevels_);
         uint32_t w = idx / BITMAP_WORD_SIZE;
         // Set the bits below the price level within the word.
         uint64_t word = bidBitMap_[w] & ((uint64_t{1} << (idx % BITMAP_WORD_SIZE)) - 1);
@@ -163,6 +163,7 @@ namespace engine::book
 
     types::Price ArrayBitMapLocator::lowestAskAbove(uint32_t idx) const noexcept
     {
+        assert(idx < numLevels_);
         // Set the bits above the price level within the word. It is 0 when b is 63. Higher words
         // keep every bit.
         uint64_t mask = ~uint64_t{1} << (idx % BITMAP_WORD_SIZE);

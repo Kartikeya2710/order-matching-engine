@@ -19,13 +19,14 @@ Each entry carries one of these statuses:
 
 ## Index
 
-| ID                                                                                            | Decision                                                                      | Status       |
-| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------ |
-| [DD-001](#dd-001-the-gateway-checks-message-structure-the-engine-checks-values-and-state)     | The gateway checks message structure; the engine checks values and book state | Keep         |
-| [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                         | One struct per request type, carried in a `std::variant`                      | Changed      |
-| [DD-003](#dd-003-price-levels-change-only-through-append-remove-and-reduce)                   | Price levels change only through `append`, `remove` and `reduce`              | Keep (noted) |
-| [DD-004](#dd-004-a-modify-that-changes-nothing-succeeds-and-keeps-the-orders-place)           | A modify that changes nothing succeeds and keeps the order's place            | Keep         |
-| [DD-005](#dd-005-a-modify-that-moves-an-order-keeps-its-slot-and-matches-first-if-it-crosses) | A modify that moves an order keeps its slot and matches first if it crosses   | Keep         |
+| ID                                                                                               | Decision                                                                        | Status       |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- | ------------ |
+| [DD-001](#dd-001-the-gateway-checks-message-structure-the-engine-checks-values-and-state)        | The gateway checks message structure; the engine checks values and book state   | Keep         |
+| [DD-002](#dd-002-one-struct-per-request-type-carried-in-a-stdvariant)                            | One struct per request type, carried in a `std::variant`                        | Changed      |
+| [DD-003](#dd-003-price-levels-change-only-through-append-remove-and-reduce)                      | Price levels change only through `append`, `remove` and `reduce`                | Keep (noted) |
+| [DD-004](#dd-004-a-modify-that-changes-nothing-succeeds-and-keeps-the-orders-place)              | A modify that changes nothing succeeds and keeps the order's place              | Keep         |
+| [DD-005](#dd-005-a-modify-that-moves-an-order-keeps-its-slot-and-matches-first-if-it-crosses)    | A modify that moves an order keeps its slot and matches first if it crosses     | Keep         |
+| [DD-006](#dd-006-the-order-book-checks-every-price-a-request-brings-in-the-locator-only-asserts) | The order book checks every price a request brings in; the locator only asserts | Keep         |
 
 ## Request intake
 
@@ -223,6 +224,38 @@ Four types, one job each:
 - **One `edit(side, price, change)` that runs a callback on the level and re-syncs the bit afterwards:** fails need 3. The callback can make any change, and the call sites are harder to read than three named operations.
 - **Queue logic in `OrderPool`, or the pool owning the links:** fails need 4.
 - **The locator stores a reference to the pool:** The locator must not be able to acquire or release slots.
+
+### DD-006: The order book checks every price a request brings in; the locator only asserts
+
+**Status:** Keep
+
+**Where:** `OrderBook::addOrder`, `OrderBook::modifyOrder`, `ArrayBitMapLocator`, `validateRange`, `loadInstrumentConfig`
+
+**What**
+
+The locator turns a price into an index into its arrays. A price below `minPrice` or above `maxPrice` gives an index outside them, and a price off the tick grid gives the level below. Exactly one piece of code must make sure such a price never reaches the locator.
+
+**Needs**
+
+1. **One owner for the check**
+   - Every price the locator receives has been checked once, by code that is named.
+
+2. **A bad price is rejected with a reason**
+   - The client is told, and the book is not touched.
+
+**Design**
+
+- Only two places bring a price from outside into the book: `addOrder` (the limit price) and `modifyOrder` (the new price). Each calls `isValidPrice()` before the price is matched or stored, and rejects the request if it fails. This meets needs 1 and 2.
+- Every other price the locator receives comes from the locator itself (`bestBid`, `bestAsk`, `nextBid`, `nextAsk`) or from a pool slot, which holds only prices checked on the way in.
+- A market order's price never reaches the locator.
+- The locator states the rule once, on `isValidPrice`, and asserts it: `priceToIndex` asserts `isValidPrice(price)`, and every helper that takes an index asserts `idx < numLevels_`. Release builds check nothing and debug builds tests stop at the first bad price.
+- `nextBid(minPrice)` and `nextAsk(maxPrice)` find no level and return `NO_PRICE`. A price outside the range is a bug for both, and both assert.
+
+**Other designs**
+
+- **The locator checks every call:** This would lead to repetitive work and `append`, `remove` and `reduce` would need a way to report a failure.
+- **A checked price type that only the locator can build:** the compiler would enforce need 1, but `Order` would need a second price type, since a market order carries a price that is not a level.
+- **Prices in ticks throughout the engine, converted by the gateway:** an off-tick price could not be expressed at all, but the tick check would move across DD-001's boundary, and every event's price would need converting back.
 
 ## Order modification
 
