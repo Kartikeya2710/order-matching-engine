@@ -142,11 +142,11 @@ struct alignas(64) Command
 
 **Status:** Keep
 
-**Where:** `ArrayBitMapLocator`, `PriceLevel`, `PoolSlot`, `OrderPool::acquire`, `OrderPool::release`, `OrderPool::reprice`, `OrderPool::slots`, `OrderBook`
+**Where:** `ArrayBitMapLocator`, `PriceLevel`, `PoolSlot`, `LevelHandleReader`, `OrderPool::acquire`, `OrderPool::release`, `OrderPool::reprice`, `OrderPool::slots`, `OrderBook`
 
 **What**
 
-The orders themselves live in the order pool's slots, and each level's queue is a doubly linked list threaded through those slots. So a single change to the book touches three things that must agree: the slot's queue links, the level's head, tail and totals, and the level's bit (in case of bitmap-based level locator).
+The orders themselves live in the order pool's slots, and each level's queue is a doubly linked list threaded through those slots. So a single change to the book touches three things that must agree: the slot's queue links and level handle, the level's head, tail and totals, and the level's bit (in case of bitmap-based level locator).
 
 **Needs**
 
@@ -169,9 +169,14 @@ The orders themselves live in the order pool's slots, and each level's queue is 
 5. **Only the pool and the level write an order**
    - No code other than `OrderPool`, when it acquires or reprices a slot, and `PriceLevel`, while the order rests, may write an order's fields.
 
+6. **A resting order's level is found without its price**
+   - `remove` and `reduce` reach the order's level straight from its slot. They do not work it out again from the price, which costs a division (without optimizations) in an array-based locator and a search in a tree-based one.
+   - The pool does not depend on which locator is used, so a tree-based locator can use the same pool.
+   - Only the locator may read where an order rests. The `OrderBook` must not read it, so it never holds a level index.
+
 **Design**
 
-Four types, one job each:
+Five types, one job each:
 
 1. **`OrderPool`**
    - Hands out and takes back slots.
@@ -182,14 +187,17 @@ Four types, one job each:
 
 2. **`PoolSlot`**
    - An `Order` (the order's ID, side, client, price, `qty` and TIF) plus the slot indexes of its neighbours in its level's queue (`next` and `prev`).
+   - It also holds a level handle: a `uint32_t` that says which level the order rests in. Its meaning belongs to the locator. In `ArrayBitMapLocator` it is the level's index in `bids_` or `asks_`. A tree-based locator would keep its levels in an indexed array and use that index, so the slot and the pool stay the same for both (need 6).
    - Only `OrderPool` writes the whole slot in `acquire`, and the price and `qty` in `reprice`
-   - `PriceLevel` changes `qty`, `next` and `prev` while the order rests.
+   - `PriceLevel` changes `qty`, `next` and `prev` while the order rests. It writes the level handle when it appends the order and sets it back to `NULL_IDX` when it removes the order.
+   - The handle has no public getter. A locator reads it through `LevelHandleReader`.
    - Copy assignment is deleted, so code holding `slots()` cannot overwrite a slot.
 
 3. **`PriceLevel`**
    - One price's queue: `head`, `tail`, `totalQty` and `orderCount`.
    - Its `append`, `remove` and `reduce` change the links, the order's `qty` and the level's totals together.
-   - In debug builds, `remove` asserts that the order's neighbours, or the level's `head` and `tail`, point back at it.
+   - `append(slotIdx, levelHandle, slots)` also writes the handle the locator passes in. `remove` sets it back to `NULL_IDX`, so a removed order has no level.
+   - In debug builds, `remove` asserts that the order's neighbours, or the level's `head` and `tail`, point back at it, and that the order still has a level handle.
 
 4. **`ArrayBitMapLocator`**
    - Owns every level on both sides and the two bitmaps.
@@ -214,6 +222,13 @@ Four types, one job each:
 
      Between that `remove` and `append`, `OrderPool::reprice` writes the order's new price and `qty`.
 
+   - `append` works out the level's index from the order's price once and passes it to `PriceLevel::append` as the handle. `remove` and `reduce` read the handle instead of the price, which meets need 6. In debug builds they assert that the handle matches the price.
+
+5. **`LevelHandleReader`**
+   - Lets a locator read a slot's level handle, and nothing else. It is a friend of `PoolSlot`, and its only member, `levelHandleOf(slot)`, is `protected` and `static`.
+   - It names no locator, so `PoolSlot` needs one friend declaration however many locators there are (need 6).
+   - `ArrayBitMapLocator` inherits from it privately, so the handle does not show through the locator's public interface. `OrderBook` does not inherit from it (need 6). This is a convention: the compiler would let any class inherit from it.
+
 **Other designs**
 
 - **Public `PoolSlot` fields, or a mutable `OrderPool::operator[]`:** fails need 5. Any code holding a slot could change a resting order's price or side, leaving it in the wrong level, or its `qty`, leaving `totalQty` out of sync.
@@ -224,6 +239,8 @@ Four types, one job each:
 - **One `edit(side, price, change)` that runs a callback on the level and re-syncs the bit afterwards:** fails need 3. The callback can make any change, and the call sites are harder to read than three named operations.
 - **Queue logic in `OrderPool`, or the pool owning the links:** fails need 4.
 - **The locator stores a reference to the pool:** The locator must not be able to acquire or release slots.
+- **The locator finds the level from the price on every `remove` and `reduce`:** fails need 6. Every cancel and fill pays a division (or simpler operations if the inverted value is stored), or a tree search in a tree-based locator.
+- **The locator keeps its own table of handles, indexed by slot:** meets need 6 without touching the pool, but reads one more cache line on every `remove` and `reduce`.
 
 ### DD-006: The order book checks every price a request brings in; the locator only asserts
 
