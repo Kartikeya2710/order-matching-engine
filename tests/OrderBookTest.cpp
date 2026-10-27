@@ -100,6 +100,45 @@ namespace
             EXPECT_EQ(events[0].fillQty, 10u);
             EXPECT_EQ(book.bestAsk(), NO_PRICE);
         }
+
+        // Sends a limit buy at `price` against a resting sell at 15000 and checks that it is
+        // rejected without touching the book.
+        void expectLimitBuyRejected(types::Price price)
+        {
+            addLimit(1, types::Verb::Sell, 15000, 10);
+            const uint32_t freeCount = book.poolFreeCount();
+            events.clear();
+
+            addLimit(2, types::Verb::Buy, price, 10);
+
+            ASSERT_EQ(events.size(), 1u);
+            EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+            EXPECT_EQ(events[0].aggressorOrderId, 2u);
+            EXPECT_EQ(book.bestBid(), NO_PRICE);
+            EXPECT_EQ(book.bestAsk(), 15000u);
+            EXPECT_EQ(book.poolFreeCount(), freeCount);
+        }
+
+        // Modifies a resting buy at 15000 to `price` and checks that the modify is rejected and
+        // the buy still rests at 15000 with its full quantity.
+        void expectModifyRejected(types::Price price)
+        {
+            addLimit(1, types::Verb::Buy, 15000, 10);
+            events.clear();
+
+            modify(1, price, 10);
+
+            ASSERT_EQ(events.size(), 1u);
+            EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+            EXPECT_EQ(events[0].aggressorOrderId, 1u);
+            EXPECT_EQ(book.bestBid(), 15000u);
+
+            events.clear();
+            addLimit(2, types::Verb::Sell, 15000, 10);
+
+            ASSERT_EQ(events.size(), 1u);
+            expectFill(events[0], 2, 1, 15000, 10, 0);
+        }
     };
 
     TEST_F(OrderBookTest, ZeroQtyMarketOrderIsRejected)
@@ -166,6 +205,52 @@ namespace
         EXPECT_EQ(events[0].fillPrice, 10100u);
         EXPECT_EQ(events[0].fillQty, 10u);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    // Prices at the book's boundary. The range is 10000 to 20000 with a tick of 5.
+
+    TEST_F(OrderBookTest, LimitPriceBelowMinIsRejected)
+    {
+        expectLimitBuyRejected(9995);
+    }
+
+    TEST_F(OrderBookTest, LimitPriceAboveMaxIsRejected)
+    {
+        expectLimitBuyRejected(20005);
+    }
+
+    TEST_F(OrderBookTest, LimitPriceOffTickIsRejected)
+    {
+        expectLimitBuyRejected(10001);
+    }
+
+    TEST_F(OrderBookTest, ModifyToPriceBelowMinIsRejected)
+    {
+        expectModifyRejected(9995);
+    }
+
+    TEST_F(OrderBookTest, ModifyToPriceAboveMaxIsRejected)
+    {
+        expectModifyRejected(20005);
+    }
+
+    TEST_F(OrderBookTest, ModifyToPriceOffTickIsRejected)
+    {
+        expectModifyRejected(15001);
+    }
+
+    TEST_F(OrderBookTest, ModifyToMinAndMaxPricesRests)
+    {
+        addLimit(1, types::Verb::Buy, 15000, 10);
+        addLimit(2, types::Verb::Sell, 15005, 10);
+        events.clear();
+
+        modify(1, 10000, 10);
+        modify(2, 20000, 10);
+
+        EXPECT_TRUE(events.empty());
+        EXPECT_EQ(book.bestBid(), 10000u);
+        EXPECT_EQ(book.bestAsk(), 20000u);
     }
 
     TEST_F(OrderBookTest, ModifyWithSamePriceAndQtyKeepsTimePriority)
@@ -459,5 +544,47 @@ namespace
         ASSERT_EQ(events.size(), 1u);
         EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
         EXPECT_EQ(book.bestAsk(), 10315u);
+    }
+
+    // The walk asks for the level below minPrice / above maxPrice, and must find none.
+
+    TEST_F(OrderBookTest, FokSellStopsWalkingAtMinPrice)
+    {
+        addLimit(1, types::Verb::Buy, 10000, 5);
+        events.clear();
+
+        book.addOrder(
+            {.orderId = 2,
+             .clientId = CLIENT,
+             .side = types::Verb::Sell,
+             .orderType = types::OrderType::Limit,
+             .tif = types::TimeInForce::FOK,
+             .limitPrice = 10000,
+             .qty = 6}
+        );
+
+        ASSERT_EQ(events.size(), 1u);
+        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        EXPECT_EQ(book.bestBid(), 10000u);
+    }
+
+    TEST_F(OrderBookTest, FokBuyStopsWalkingAtMaxPrice)
+    {
+        addLimit(1, types::Verb::Sell, 20000, 5);
+        events.clear();
+
+        book.addOrder(
+            {.orderId = 2,
+             .clientId = CLIENT,
+             .side = types::Verb::Buy,
+             .orderType = types::OrderType::Limit,
+             .tif = types::TimeInForce::FOK,
+             .limitPrice = 20000,
+             .qty = 6}
+        );
+
+        ASSERT_EQ(events.size(), 1u);
+        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        EXPECT_EQ(book.bestAsk(), 20000u);
     }
 } // namespace

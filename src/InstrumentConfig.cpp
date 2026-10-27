@@ -1,11 +1,23 @@
 #include "InstrumentConfig.hpp"
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 
 namespace engine
 {
+
+    // std::stoul, except that a value above UINT32_MAX throws instead of being cut to 32 bits.
+    static uint32_t toUint32(const std::string& s)
+    {
+        const unsigned long value = std::stoul(s);
+        if (value > std::numeric_limits<uint32_t>::max())
+        {
+            throw std::out_of_range(s);
+        }
+        return static_cast<uint32_t>(value);
+    }
 
     static BookType parseBookType(const std::string& s, int lineNo)
     {
@@ -32,6 +44,13 @@ namespace engine
         {
             throw std::runtime_error(
                 "instruments.cfg line " + std::to_string(lineNo) + ": min_price must be < max_price"
+            );
+        }
+        if (r.maxPrice >= book::NO_PRICE)
+        {
+            throw std::runtime_error(
+                "instruments.cfg line " + std::to_string(lineNo) + ": max_price must be < " +
+                std::to_string(book::NO_PRICE) + ", which means no price"
             );
         }
         if ((r.maxPrice - r.minPrice) % r.tickSize != 0)
@@ -76,7 +95,7 @@ namespace engine
 
             try
             {
-                cfg.instrumentId = static_cast<types::InstrumentId>(std::stoul(token));
+                cfg.instrumentId = toUint32(token);
             }
             catch (...)
             {
@@ -106,7 +125,7 @@ namespace engine
                 }
                 try
                 {
-                    return static_cast<types::Price>(std::stoul(s));
+                    return toUint32(s);
                 }
                 catch (...)
                 {
