@@ -26,13 +26,15 @@ namespace engine::book
             return head == NULL_IDX;
         }
 
-        // Adds the order in `slotIdx` to the back of the queue.
-        void append(uint32_t slotIdx, std::span<PoolSlot> slots) noexcept
+        // Adds the order in `slotIdx` to the back of the queue and stores `levelHandle`, the
+        // locator's handle for this level, in the slot.
+        void append(uint32_t slotIdx, uint32_t levelHandle, std::span<PoolSlot> slots) noexcept
         {
             assert(slots[slotIdx].order_.qty > 0);
 
             slots[slotIdx].next_ = NULL_IDX;
             slots[slotIdx].prev_ = tail;
+            slots[slotIdx].levelHandle_ = levelHandle;
 
             if (tail != NULL_IDX)
             {
@@ -48,10 +50,11 @@ namespace engine::book
             ++orderCount;
         }
 
-        // Takes the order in `slotIdx` out of the queue. Does not free the slot.
+        // Takes the order in `slotIdx` out of the queue and clears its level handle. Does not free
+        // the slot.
         void remove(uint32_t slotIdx, std::span<PoolSlot> slots) noexcept
         {
-            const PoolSlot& removed = slots[slotIdx];
+            PoolSlot& removed = slots[slotIdx];
 
             // The order must be in this queue: its neighbours, or head and tail, point back at it.
             assert(
@@ -60,6 +63,8 @@ namespace engine::book
             assert(
                 removed.next_ != NULL_IDX ? slots[removed.next_].prev_ == slotIdx : tail == slotIdx
             );
+            // The order must not be already removed
+            assert(removed.levelHandle_ != NULL_IDX);
 
             if (removed.prev_ != NULL_IDX)
             {
@@ -78,6 +83,8 @@ namespace engine::book
             {
                 tail = removed.prev_;
             }
+
+            removed.levelHandle_ = NULL_IDX;
 
             totalQty -= slots[slotIdx].order_.qty;
             --orderCount;

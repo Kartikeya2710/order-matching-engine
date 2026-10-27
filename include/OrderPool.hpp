@@ -28,9 +28,11 @@ namespace engine::book
         types::TimeInForce tif = types::TimeInForce::GTC;
     };
 
-    // One pool slot: an order plus its links in its price level's queue. Anyone can read it.
-    // Only OrderPool writes it, when it acquires or reprices the slot, and only PriceLevel changes
-    // qty and the links while the order rests.
+    // One pool slot: an order, its links in its price level's queue and the handle of that level.
+    // Anyone can read the order and the links.
+    // The OrderPool writes the slot when it acquires it and changes the order's `price` and `qty`
+    // when it reprices an order. The PriceLevel writes the links and the level handle when it
+    // appends or removes an order, and qty when it reduces an order in place.
     class alignas(64) PoolSlot
     {
     public:
@@ -59,10 +61,23 @@ namespace engine::book
         template <uint32_t Capacity>
         friend class OrderPool;
         friend struct PriceLevel;
+        friend class LevelHandleReader;
 
         Order order_;
         uint32_t next_ = NULL_IDX;
         uint32_t prev_ = NULL_IDX;
+        // The price level the order rests in. The handle is level locator agnostic
+        uint32_t levelHandle_ = NULL_IDX;
+    };
+
+    // Lets a price level locator read the level handle that PriceLevel::append wrote into a slot.
+    class LevelHandleReader
+    {
+    protected:
+        [[nodiscard]] static uint32_t levelHandleOf(const PoolSlot& slot) noexcept
+        {
+            return slot.levelHandle_;
+        }
     };
 
     template <uint32_t Capacity>
@@ -102,6 +117,7 @@ namespace engine::book
             slot.order_ = order;
             slot.next_ = NULL_IDX;
             slot.prev_ = NULL_IDX;
+            slot.levelHandle_ = NULL_IDX;
 
             return slotIdx;
         }

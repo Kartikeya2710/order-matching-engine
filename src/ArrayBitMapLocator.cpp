@@ -64,7 +64,7 @@ namespace engine::book
     {
         const Order& order = slots[slotIdx].order();
         const uint32_t idx = priceToIndex(order.price);
-        priceLevels(order.verb)[idx].append(slotIdx, slots);
+        priceLevels(order.verb)[idx].append(slotIdx, idx, slots);
         setBit(bitMapFor(order.verb), idx);
 
         if (order.verb == types::Verb::Buy)
@@ -83,7 +83,8 @@ namespace engine::book
     void ArrayBitMapLocator::remove(uint32_t slotIdx, std::span<PoolSlot> slots) noexcept
     {
         const Order& order = slots[slotIdx].order();
-        const uint32_t idx = priceToIndex(order.price);
+        const uint32_t idx = levelHandleOf(slots[slotIdx]);
+        assert(idx == priceToIndex(order.price));
         PriceLevel& level = priceLevels(order.verb)[idx];
         level.remove(slotIdx, slots);
 
@@ -113,7 +114,9 @@ namespace engine::book
     ) noexcept
     {
         const Order& order = slots[slotIdx].order();
-        priceLevels(order.verb)[priceToIndex(order.price)].reduce(slotIdx, by, slots);
+        const uint32_t idx = levelHandleOf(slots[slotIdx]);
+        assert(idx == priceToIndex(order.price));
+        priceLevels(order.verb)[idx].reduce(slotIdx, by, slots);
     }
 
     bool ArrayBitMapLocator::isValidPrice(types::Price price) const noexcept
