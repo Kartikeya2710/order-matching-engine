@@ -23,7 +23,7 @@ namespace engine::book
 
     // A level's bit is set exactly when the level has orders.
     // `append()`, `remove()` and `reduce()` are the only ways to change a level
-    class ArrayBitMapLocator
+    class ArrayBitMapLocator : private LevelHandleReader
     {
     private:
         PriceRange range_;
