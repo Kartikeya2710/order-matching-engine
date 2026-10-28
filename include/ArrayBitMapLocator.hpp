@@ -27,6 +27,9 @@ namespace engine::book
     {
     private:
         PriceRange range_;
+        // UINT64_MAX / tickSize: 1/tickSize scaled by 2^64, rounded down. ticksIn() multiplies by
+        // it instead of dividing.
+        uint64_t tickReciprocal_;
         size_t numLevels_;
         std::vector<PriceLevel> bids_;
         std::vector<PriceLevel> asks_;
@@ -35,6 +38,9 @@ namespace engine::book
         // NO_PRICE when the side is empty
         types::Price bestBid_;
         types::Price bestAsk_;
+
+        // offset / tickSize rounded down using a multiply instead of a divide.
+        [[nodiscard]] uint32_t ticksIn(uint32_t offset) const noexcept;
 
         // `price` must pass isValidPrice(). Every `idx` taken below must be valid
         [[nodiscard]] uint32_t priceToIndex(types::Price price) const noexcept;

@@ -1,13 +1,22 @@
 #include "ArrayBitMapLocator.hpp"
 #include <bit>
 #include <cassert>
+#include <cstdint>
 
 namespace engine::book
 {
+    uint32_t ArrayBitMapLocator::ticksIn(uint32_t offset) const noexcept
+    {
+        // The + 1 makes up for the reciprocal being rounded down, so the result is exact.
+        const auto product =
+            static_cast<unsigned __int128>(tickReciprocal_) * (uint64_t{offset} + 1);
+        return static_cast<uint32_t>(product >> 64);
+    }
+
     uint32_t ArrayBitMapLocator::priceToIndex(types::Price price) const noexcept
     {
         assert(isValidPrice(price));
-        return static_cast<uint32_t>((price - range_.minPrice) / range_.tickSize);
+        return ticksIn(price - range_.minPrice);
     }
 
     types::Price ArrayBitMapLocator::indexToPrice(uint32_t idx) const noexcept
@@ -45,6 +54,7 @@ namespace engine::book
 
     ArrayBitMapLocator::ArrayBitMapLocator(PriceRange range)
         : range_(range),
+          tickReciprocal_(UINT64_MAX / range.tickSize),
           numLevels_(((range.maxPrice - range.minPrice) / range.tickSize) + 1),
           bids_(numLevels_),
           asks_(numLevels_),
@@ -122,7 +132,7 @@ namespace engine::book
     bool ArrayBitMapLocator::isValidPrice(types::Price price) const noexcept
     {
         return (price >= range_.minPrice && price <= range_.maxPrice) &&
-               (price - range_.minPrice) % range_.tickSize == 0;
+               ticksIn(price - range_.minPrice) * range_.tickSize == price - range_.minPrice;
     }
 
     types::Price ArrayBitMapLocator::bestBid() const noexcept
