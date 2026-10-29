@@ -78,7 +78,8 @@ def generate(instruments, n, duration_ms, seed,
                 cmds.append({
                     'timestamp_ns': ts, 'type': 'Add', 'order_id': oid,
                     'instrument_id': inst['id'], 'client_id': cid,
-                    'tif': 'None', 'order_type': 'Market', 'verb': verb,
+                    'tif': 'None', 'stp': 'CancelResting',
+                    'order_type': 'Market', 'verb': verb,
                     'limit_price': 0, 'stop_price': 0,
                     'qty': rng.randint(1, 50),
                 })
@@ -94,7 +95,8 @@ def generate(instruments, n, duration_ms, seed,
                 cmds.append({
                     'timestamp_ns': ts, 'type': 'Add', 'order_id': oid,
                     'instrument_id': inst['id'], 'client_id': cid,
-                    'tif': tif, 'order_type': 'Limit', 'verb': verb,
+                    'tif': tif, 'stp': 'CancelResting',
+                    'order_type': 'Limit', 'verb': verb,
                     'limit_price': lp, 'stop_price': 0, 'qty': qty,
                 })
                 if tif == 'GTC':
@@ -134,7 +136,7 @@ def generate(instruments, n, duration_ms, seed,
 
 def write_csv(cmds, path):
     fields = ['timestamp_ns', 'type', 'order_id', 'instrument_id', 'client_id',
-              'tif', 'order_type', 'verb', 'limit_price', 'stop_price', 'qty']
+              'tif', 'stp', 'order_type', 'verb', 'limit_price', 'stop_price', 'qty']
     with open(path, 'w', newline='') as f:
         f.write('# ' + ','.join(fields) + '\n')
         w = csv.DictWriter(f, fieldnames=fields)

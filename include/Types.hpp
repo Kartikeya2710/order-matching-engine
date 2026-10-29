@@ -29,4 +29,10 @@ namespace engine::types
         GTC = 2,
         None = 3,
     };
-}  // namespace engine::types
+
+    enum class SelfTradePrevention : uint8_t
+    {
+        CancelResting = 0,
+        CancelAggressor = 1,
+    };
+} // namespace engine::types

@@ -2,6 +2,7 @@
 #include "InstrumentConfig.hpp"
 #include "MatchingCore.hpp"
 #include "TradeEvent.hpp"
+#include "Types.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -12,9 +13,9 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <map>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -111,24 +112,39 @@ static engine::types::TimeInForce parseTIF(const std::string& s)
     throw std::runtime_error("bad tif: " + s);
 }
 
-// Columns: timestamp_ns, type, order_id, instrument_id, client_id, tif,
+static engine::types::SelfTradePrevention parseSTP(const std::string& s)
+{
+    if (s == "CancelAggressor")
+    {
+        return engine::types::SelfTradePrevention::CancelAggressor;
+    }
+    if (s == "CancelResting")
+    {
+        return engine::types::SelfTradePrevention::CancelResting;
+    }
+
+    throw std::runtime_error("bad STP: " + s);
+}
+
+// Columns: timestamp_ns, type, order_id, instrument_id, client_id, tif, stp,
 // order_type, verb, limit_price, stop_price, qty. Each type reads only its own
 // columns; stop_price is not used by the engine.
 static engine::core::Request parseRequest(const std::vector<std::string>& tok)
 {
     const auto orderId = static_cast<uint32_t>(std::stoul(tok[2]));
     const auto clientId = static_cast<uint32_t>(std::stoul(tok[4]));
-    const auto price = static_cast<uint32_t>(std::stoul(tok[8]));
-    const auto qty = static_cast<uint32_t>(std::stoul(tok[10]));
+    const auto price = static_cast<uint32_t>(std::stoul(tok[9]));
+    const auto qty = static_cast<uint32_t>(std::stoul(tok[11]));
 
     if (tok[1] == "Add")
     {
         return engine::core::NewOrder{
             .orderId = orderId,
             .clientId = clientId,
-            .side = parseVerb(tok[7]),
-            .orderType = parseOT(tok[6]),
+            .side = parseVerb(tok[8]),
+            .orderType = parseOT(tok[7]),
             .tif = parseTIF(tok[5]),
+            .stp = parseSTP(tok[6]),
             .limitPrice = price,
             .qty = qty,
         };
@@ -190,7 +206,7 @@ std::vector<SimRow> loadCommands(const std::string& path)
             size_t b = s.find_last_not_of(" \t\r");
             tok.push_back(a == std::string::npos ? "" : s.substr(a, b - a + 1));
         }
-        if (tok.size() < 11)
+        if (tok.size() < 12)
         {
             continue;
         }
@@ -316,12 +332,26 @@ static const char* tifName(engine::types::TimeInForce t)
     return "?";
 }
 
+static const char* stpName(engine::types::SelfTradePrevention s)
+{
+    switch (s)
+    {
+    case engine::types::SelfTradePrevention::CancelAggressor:
+        return "CancelAggressor";
+    case engine::types::SelfTradePrevention::CancelResting:
+        return "CancelResting";
+    }
+
+    return "?";
+}
+
 // JSON fields that only some request types carry.
 static void writeRequestFields(std::ostream& out, const engine::core::NewOrder& order)
 {
     out << ",\"verb\":\"" << verbName(order.side) << "\""
         << ",\"order_type\":\"" << otName(order.orderType) << "\""
         << ",\"tif\":\"" << tifName(order.tif) << "\""
+        << ",\"stp\":\"" << stpName(order.stp) << "\""
         << ",\"limit_price\":" << order.limitPrice << ",\"qty\":" << order.qty;
 }
 

@@ -14,6 +14,7 @@ namespace engine::core
         types::Verb side;
         types::OrderType orderType;
         types::TimeInForce tif;
+        types::SelfTradePrevention stp = types::SelfTradePrevention::CancelResting;
         types::Price limitPrice;
         types::Quantity qty;
     };
@@ -55,7 +56,8 @@ namespace engine::core
         }
 
         return order->side <= types::Verb::Sell && order->orderType <= types::OrderType::Stop &&
-               order->tif <= types::TimeInForce::None;
+               order->tif <= types::TimeInForce::None &&
+               order->stp <= types::SelfTradePrevention::CancelAggressor;
     }
 
 } // namespace engine::core
