@@ -27,6 +27,7 @@ Each entry carries one of these statuses:
 | [DD-004](#dd-004-a-modify-that-changes-nothing-succeeds-and-keeps-the-orders-place)              | A modify that changes nothing succeeds and keeps the order's place              | Keep         |
 | [DD-005](#dd-005-a-modify-that-moves-an-order-keeps-its-slot-and-matches-first-if-it-crosses)    | A modify that moves an order keeps its slot and matches first if it crosses     | Keep         |
 | [DD-006](#dd-006-the-order-book-checks-every-price-a-request-brings-in-the-locator-only-asserts) | The order book checks every price a request brings in; the locator only asserts | Keep         |
+| [DD-007](#dd-007-each-new-order-carries-its-clients-stp-mode-and-the-aggressors-mode-decides)    | Each new order carries its client's STP mode, and the aggressor's mode decides  | Keep         |
 
 ## Request intake
 
@@ -347,6 +348,53 @@ A modify that changes an order's price or raises its quantity sends the order to
 **Other designs**
 
 - **Free the slot and rest the order as a new one:** fails need 2.
+
+## Self-trade prevention
+
+### DD-007: Each new order carries its client's STP mode and the aggressor's mode decides
+
+**Status:** Keep
+
+**Where:** `NewOrder`, `ModifyOrder`, `CancelOrder`, `Order`, `OrderBook::matchAggressor`
+
+**What**
+
+Self-trade prevention (STP) stops an incoming order from trading with a resting order of the same client (same `clientId`). When the two meet, the engine cancels one of them, as chosen by an STP mode:
+
+- **Cancel resting:** cancel the resting order and keep matching.
+- **Cancel aggressor:** cancel what is left of the incoming order.
+
+A third mode, cancel both, will be added later. This entry decides where an order's mode comes from and whose mode applies when two orders meet.
+
+**Needs**
+
+1. **The mode is a client setting, not an order setting**
+   - All of a client's new orders use the client's current mode.
+   - A client that has never set a mode gets cancel resting.
+
+2. **The aggressor wins when the STP modes mismatch**
+   - A client can change its mode while its orders rest
+   - The aggressor's STP mode will be used for matching
+
+3. **A modify or a cancel cannot change an order's mode**
+
+**Design**
+
+- A new enum `SelfTradePrevention` (`CancelResting = 0`, `CancelAggressor = 1`) and a field `NewOrder::stp` that defaults to `CancelResting`.
+- The gateway sets `stp` on every new order from the client's setting, as it sets `clientId` from the session (DD-001, guarantee 4). The client changes its setting through a request to the gateway, which the engine never sees. This meets needs 1.
+- `stp` only ever holds a declared value, like the other enums (DD-001, guarantee 2).
+- `ModifyOrder` and `CancelOrder` have no `stp`. The gateway rejects a modify or cancel message that carries one, as a message with the wrong fields for its type (DD-001, guarantee 1).
+- The order keeps its mode in its pool slot (`Order::stp`), so a modify that crosses (DD-005) matches with the mode the order entered with.
+- When an incoming order meets a resting order of the same client, `matchAggressor()` reads only the incoming order's mode. CME, ICE, NSE, Coinbase, Binance and Deribit apply the same rule.
+- A change to a client's setting therefore reaches its new orders only. Cboe applies a change to a session's default mode the same way.
+- The field fills a padding byte: `NewOrder` stays 20 bytes, `Order` 24, and `Command` uses 28 of its 64 bytes.
+- Which events report each cancel, and how a fill-or-kill order is checked, are separate decisions.
+
+**Other designs**
+
+- **The engine keeps each client's mode and looks it up at match time**
+- **The client picks a mode on each order** (CME, NYSE, Eurex, Coinbase): fails need 1.
+- **A modify carries the mode and is rejected if it differs from the order's** (NSE): Adds a field whose only accepted value is the one the order already has.
 
 <!--
 Entry template
