@@ -4,6 +4,8 @@ import csv
 import os
 import sys
 
+NUM_CLIENTS = 100
+
 
 def load_instruments(path):
     instruments = []
@@ -31,10 +33,19 @@ def align(price, inst):
     return max(inst['min_price'], min(inst['max_price'], p))
 
 
-def generate(instruments, n, duration_ms, seed,
+def generate(instruments, n, duration_ms, seed, cancel_aggressor_clients=0.0,
              add_ratio=0.60, cancel_ratio=0.25,
              market_ratio=0.08, ioc_ratio=0.05, spread_ticks=5):
     rng = random.Random(seed)
+
+    # Each client keeps one STP mode for the whole run (DD-007). The clients are picked with
+    # their own generator, so the commands stay the same whatever share is chosen.
+    n_aggressor = round(cancel_aggressor_clients * NUM_CLIENTS)
+    aggressor_clients = set(random.Random(seed).sample(range(1, NUM_CLIENTS + 1), n_aggressor))
+
+    def stp_of(cid):
+        return 'CancelAggressor' if cid in aggressor_clients else 'CancelResting'
+
     cmds = []
     open_orders = {}
     next_oid = 1
@@ -71,14 +82,14 @@ def generate(instruments, n, duration_ms, seed,
         if r < add_ratio or not open_orders:
             oid = next_oid
             next_oid += 1
-            cid = rng.randint(1, 100)
+            cid = rng.randint(1, NUM_CLIENTS)
             verb = 'Buy' if rng.random() < 0.5 else 'Sell'
 
             if rng.random() < market_ratio:
                 cmds.append({
                     'timestamp_ns': ts, 'type': 'Add', 'order_id': oid,
                     'instrument_id': inst['id'], 'client_id': cid,
-                    'tif': 'None', 'stp': 'CancelResting',
+                    'tif': 'None', 'stp': stp_of(cid),
                     'order_type': 'Market', 'verb': verb,
                     'limit_price': 0, 'stop_price': 0,
                     'qty': rng.randint(1, 50),
@@ -95,7 +106,7 @@ def generate(instruments, n, duration_ms, seed,
                 cmds.append({
                     'timestamp_ns': ts, 'type': 'Add', 'order_id': oid,
                     'instrument_id': inst['id'], 'client_id': cid,
-                    'tif': tif, 'stp': 'CancelResting',
+                    'tif': tif, 'stp': stp_of(cid),
                     'order_type': 'Limit', 'verb': verb,
                     'limit_price': lp, 'stop_price': 0, 'qty': qty,
                 })
@@ -151,7 +162,13 @@ def main():
     p.add_argument('-n', '--num-commands', type=int, default=50000)
     p.add_argument('--duration-ms', type=int, default=10000)
     p.add_argument('--seed', type=int, default=42)
+    p.add_argument('--cancel-aggressor-clients', type=float, default=0.0,
+                   help='share of clients (0 to 1) whose orders use CancelAggressor; '
+                        'the rest use CancelResting')
     args = p.parse_args()
+
+    if not 0.0 <= args.cancel_aggressor_clients <= 1.0:
+        p.error('--cancel-aggressor-clients must be between 0 and 1')
 
     if not os.path.exists(args.instruments):
         print(f"error: {args.instruments} not found", file=sys.stderr)
@@ -160,7 +177,8 @@ def main():
     instruments = load_instruments(args.instruments)
     print(f"loaded {len(instruments)} instrument(s)")
     print(f"generating {args.num_commands} commands (seed={args.seed})...")
-    cmds = generate(instruments, args.num_commands, args.duration_ms, args.seed)
+    cmds = generate(instruments, args.num_commands, args.duration_ms, args.seed,
+                    cancel_aggressor_clients=args.cancel_aggressor_clients)
     write_csv(cmds, args.output)
 
     types = {}
