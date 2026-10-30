@@ -64,13 +64,10 @@ namespace engine::book
 
             while (remainingQty > 0 && bestPrice != NO_PRICE)
             {
-                if (order.limitPrice != NO_PRICE)
+                if ((isBuy && bestPrice > order.limitPrice) ||
+                    (!isBuy && bestPrice < order.limitPrice))
                 {
-                    if ((isBuy && bestPrice > order.limitPrice) ||
-                        (!isBuy && bestPrice < order.limitPrice))
-                    {
-                        break;
-                    }
+                    break;
                 }
 
                 const PriceLevel& level = locator_.level(passiveSide, bestPrice);
