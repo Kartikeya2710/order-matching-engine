@@ -379,6 +379,8 @@ static const char* evName(engine::core::TradeEvent::Type t)
         return "Fill";
     case T::PartialFill:
         return "PartialFill";
+    case T::SelfTradeCancelled:
+        return "SelfTradeCancelled";
     }
     return "?";
 }
@@ -574,6 +576,7 @@ int main(int argc, char* argv[])
 
     // Event counters (atomic so the callback can update from any thread)
     std::atomic<uint64_t> ev_fill{0}, ev_partial{0}, ev_accept{0}, ev_reject{0}, ev_cancel{0};
+    std::atomic<uint64_t> ev_self_trade{0};
     std::atomic<uint64_t> ev_volume{0}, ev_turnover{0};
     std::atomic<uint64_t> ev_total{0};
 
@@ -618,6 +621,9 @@ int main(int argc, char* argv[])
                 break;
             case engine::core::TradeEvent::Type::OrderCancelled:
                 ev_cancel.fetch_add(1, std::memory_order_relaxed);
+                break;
+            case engine::core::TradeEvent::Type::SelfTradeCancelled:
+                ev_self_trade.fetch_add(1, std::memory_order_relaxed);
                 break;
             }
             ev_total.fetch_add(1, std::memory_order_relaxed);
@@ -837,7 +843,12 @@ int main(int argc, char* argv[])
         std::lock_guard<std::mutex> lk(ev_mu);
         for (auto& [wall_ns, ev] : raw_events)
         {
-            auto it = oid_to_idx.find(ev.aggressorOrderId);
+            // A resting order cancelled by self-trade prevention was cancelled by the incoming
+            // order in passiveOrderId, so the event belongs to that order's command.
+            const bool restingSelfTrade =
+                ev.type == engine::core::TradeEvent::Type::SelfTradeCancelled &&
+                ev.passiveOrderId != 0;
+            auto it = oid_to_idx.find(restingSelfTrade ? ev.passiveOrderId : ev.aggressorOrderId);
             if (it == oid_to_idx.end())
             {
                 continue;
@@ -884,6 +895,7 @@ int main(int argc, char* argv[])
     std::cout << "    accepted:       " << ev_accept.load() << "\n";
     std::cout << "    rejected:       " << ev_reject.load() << "\n";
     std::cout << "    cancelled:      " << ev_cancel.load() << "\n";
+    std::cout << "    self-trade:     " << ev_self_trade.load() << "\n";
     std::cout << "  volume:           " << ev_volume.load() << "\n";
     std::cout << "  turnover:         " << ev_turnover.load() << "\n";
     std::cout << "  sim time:         " << std::fixed << std::setprecision(2) << total_ms
@@ -941,9 +953,10 @@ int main(int argc, char* argv[])
     out << "    \"total_commands\":" << rows.size() << ",\"total_events\":" << ev_total.load()
         << ",\"fills\":" << ev_fill.load() << ",\"partial_fills\":" << ev_partial.load()
         << ",\"accepted\":" << ev_accept.load() << ",\"rejected\":" << ev_reject.load()
-        << ",\"cancelled\":" << ev_cancel.load() << ",\"volume\":" << ev_volume.load()
-        << ",\"turnover\":" << ev_turnover.load() << ",\"simulation_time_ns\":" << total_ns
-        << ",\"simulation_time_ms\":" << total_ms
+        << ",\"cancelled\":" << ev_cancel.load()
+        << ",\"self_trade_cancelled\":" << ev_self_trade.load()
+        << ",\"volume\":" << ev_volume.load() << ",\"turnover\":" << ev_turnover.load()
+        << ",\"simulation_time_ns\":" << total_ns << ",\"simulation_time_ms\":" << total_ms
         << ",\"throughput_cmds_per_sec\":" << (uint64_t)throughput << ",\n";
     writeStats("submit_latency", sub_stats);
     out << ",\n";
