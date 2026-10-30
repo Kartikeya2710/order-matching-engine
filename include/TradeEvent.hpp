@@ -14,6 +14,9 @@ namespace engine::core
             OrderCancelled = 2,
             Fill = 3,
             PartialFill = 4,
+            // aggressorOrderId with aggressorRemaining got cancelled. If it was resting,
+            // passiveOrderId is the incoming order that cancelled it, otherwise 0.
+            SelfTradeCancelled = 5,
         };
 
         Type type;
@@ -28,4 +31,4 @@ namespace engine::core
         types::Quantity passiveRemaining = 0;
     };
 
-}
+} // namespace engine::core

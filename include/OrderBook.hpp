@@ -7,6 +7,7 @@
 #include "OrderPool.hpp"
 #include "PriceLevel.hpp"
 #include "TradeEvent.hpp"
+#include "Types.hpp"
 
 namespace engine::book
 {
@@ -24,12 +25,33 @@ namespace engine::book
         types::InstrumentId instrumentId_ = 0;
         EventCallback onEvent_;
 
+        enum class MatchEndReason : uint8_t
+        {
+            Filled,
+            NoLiquidity,
+            SelfTradePrevention,
+        };
+
         void emit(engine::core::TradeEvent ev) noexcept
         {
             if (onEvent_)
             {
                 onEvent_(ev);
             }
+        }
+
+        // Cancel Resting: cancelledBy is the aggressor, cancelled is the passive
+        // Cancel Aggressor: cancelledBy is 0, cancelled is the aggressor
+        void emitSelfTradeCancelled(const Order& cancelled, types::OrderId cancelledBy = 0) noexcept
+        {
+            emit(
+                {.type = engine::core::TradeEvent::Type::SelfTradeCancelled,
+                 .instrumentId = instrumentId_,
+                 .aggressorOrderId = cancelled.orderId,
+                 .passiveOrderId = cancelledBy,
+                 .aggressorClientId = cancelled.clientId,
+                 .aggressorRemaining = cancelled.qty}
+            );
         }
 
         [[nodiscard]] bool canFullyFill(const engine::core::NewOrder& order) const noexcept
@@ -42,13 +64,10 @@ namespace engine::book
 
             while (remainingQty > 0 && bestPrice != NO_PRICE)
             {
-                if (order.limitPrice != NO_PRICE)
+                if ((isBuy && bestPrice > order.limitPrice) ||
+                    (!isBuy && bestPrice < order.limitPrice))
                 {
-                    if ((isBuy && bestPrice > order.limitPrice) ||
-                        (!isBuy && bestPrice < order.limitPrice))
-                    {
-                        break;
-                    }
+                    break;
                 }
 
                 const PriceLevel& level = locator_.level(passiveSide, bestPrice);
@@ -57,7 +76,25 @@ namespace engine::book
                 while (remainingQty > 0 && slotIdx != NULL_IDX)
                 {
                     const PoolSlot& passiveSlot = pool_[slotIdx];
-                    remainingQty -= std::min(remainingQty, passiveSlot.order().qty);
+                    const Order& passiveOrder = passiveSlot.order();
+
+                    // STP
+                    if (passiveOrder.clientId == order.clientId)
+                    {
+                        switch (order.stp)
+                        {
+                        case types::SelfTradePrevention::CancelResting:
+                            // Move on to the next passive order
+                            break;
+                        case types::SelfTradePrevention::CancelAggressor:
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        remainingQty -= std::min(remainingQty, passiveOrder.qty);
+                    }
+
                     slotIdx = passiveSlot.next();
                 }
 
@@ -67,40 +104,52 @@ namespace engine::book
             return remainingQty == 0;
         }
 
-        // Run the match loop. Returns unfilled remainingQty quantity.
-        // A market order has no price limit (price is NO_PRICE).
-        types::Quantity matchAggressor(const Order& order) noexcept
+        // Matches the order against the book and returns why it stopped. Writes the order's
+        // qty as the quantity still open. Raises appropriate events for the passive orders
+        MatchEndReason matchAggressor(Order& order) noexcept
         {
             const bool isBuy = (order.verb == types::Verb::Buy);
             const types::Verb passiveSide = isBuy ? types::Verb::Sell : types::Verb::Buy;
 
-            types::Quantity remainingQty = order.qty;
-
-            while (remainingQty > 0)
+            while (order.qty > 0)
             {
                 const types::Price bestPrice = isBuy ? locator_.bestAsk() : locator_.bestBid();
                 if (bestPrice == NO_PRICE)
                 {
-                    break;
+                    return MatchEndReason::NoLiquidity;
                 }
                 if (order.price != NO_PRICE)
                 {
                     // if no order that can match my limit price
                     if ((isBuy && bestPrice > order.price) || (!isBuy && bestPrice < order.price))
                     {
-                        break;
+                        return MatchEndReason::NoLiquidity;
                     }
                 }
 
                 const PriceLevel& level = locator_.level(passiveSide, bestPrice);
-                while (remainingQty > 0 && !level.empty())
+                while (order.qty > 0 && !level.empty())
                 {
                     const uint32_t passiveSlotIdx = level.head;
                     const Order& passiveOrder = pool_[passiveSlotIdx].order();
-                    const types::Quantity fillQty = std::min(remainingQty, passiveOrder.qty);
+
+                    if (passiveOrder.clientId == order.clientId)
+                    {
+                        switch (order.stp)
+                        {
+                        case types::SelfTradePrevention::CancelResting:
+                            emitSelfTradeCancelled(passiveOrder, order.orderId);
+                            removeFromBook(passiveSlotIdx);
+                            continue;
+                        case types::SelfTradePrevention::CancelAggressor:
+                            return MatchEndReason::SelfTradePrevention;
+                        }
+                    }
+
+                    const types::Quantity fillQty = std::min(order.qty, passiveOrder.qty);
                     const bool passiveFilled = (fillQty == passiveOrder.qty);
 
-                    remainingQty -= fillQty;
+                    order.qty -= fillQty;
                     if (!passiveFilled)
                     {
                         locator_.reduce(passiveSlotIdx, fillQty, pool_.slots());
@@ -116,7 +165,7 @@ namespace engine::book
                         .passiveClientId = passiveOrder.clientId,
                         .fillPrice = bestPrice,
                         .fillQty = fillQty,
-                        .aggressorRemaining = remainingQty,
+                        .aggressorRemaining = order.qty,
                         .passiveRemaining = passiveFilled ? 0 : passiveOrder.qty,
                     });
 
@@ -127,7 +176,7 @@ namespace engine::book
                 }
             }
 
-            return remainingQty;
+            return MatchEndReason::Filled;
         }
 
         bool restInBook(const Order& resting) noexcept
@@ -161,7 +210,8 @@ namespace engine::book
         }
 
         // Moves a resting order to a new price or a higher quantity, keeping its slot and index
-        // entry. It matches first if the new price crosses, and only what is left rests.
+        // entry. It matches first if the new price crosses, and only what is left rests, unless
+        // self-trade prevention cancels it.
         void moveOrder(uint32_t slotIdx, types::Price newPrice, types::Quantity newQty) noexcept
         {
             locator_.remove(slotIdx, pool_.slots());
@@ -170,16 +220,19 @@ namespace engine::book
             moved.price = newPrice;
             moved.qty = newQty;
 
-            moved.qty = matchAggressor(moved);
-            if (moved.qty == 0)
+            switch (matchAggressor(moved))
             {
-                index_.erase(moved.orderId);
-                pool_.release(slotIdx);
-            }
-            else
-            {
+            case MatchEndReason::NoLiquidity:
                 pool_.reprice(slotIdx, moved.price, moved.qty);
                 locator_.append(slotIdx, pool_.slots());
+                break;
+            case MatchEndReason::SelfTradePrevention:
+                emitSelfTradeCancelled(moved);
+                [[fallthrough]];
+            case MatchEndReason::Filled:
+                index_.erase(moved.orderId);
+                pool_.release(slotIdx);
+                break;
             }
         }
 
@@ -223,13 +276,16 @@ namespace engine::book
                 .price = order.limitPrice,
                 .qty = order.qty,
                 .tif = order.tif,
+                .stp = order.stp,
             };
 
             if (order.orderType == types::OrderType::Market)
             {
-                incoming.qty = matchAggressor(incoming);
-                if (incoming.qty > 0)
+                switch (matchAggressor(incoming))
                 {
+                case MatchEndReason::Filled:
+                    break;
+                case MatchEndReason::NoLiquidity:
                     emit(
                         {.type = engine::core::TradeEvent::Type::OrderRejected,
                          .instrumentId = instrumentId_,
@@ -237,6 +293,10 @@ namespace engine::book
                          .aggressorClientId = order.clientId,
                          .aggressorRemaining = incoming.qty}
                     );
+                    break;
+                case MatchEndReason::SelfTradePrevention:
+                    emitSelfTradeCancelled(incoming);
+                    break;
                 }
 
                 return;
@@ -268,18 +328,21 @@ namespace engine::book
                 return;
             }
 
-            incoming.qty = matchAggressor(incoming);
-
-            if (incoming.qty == 0)
+            switch (matchAggressor(incoming))
             {
-                return; // fully filled
+            case MatchEndReason::Filled:
+                break;
+            case MatchEndReason::NoLiquidity:
+                if (order.tif == types::TimeInForce::IOC)
+                {
+                    return; // discard unfilled
+                }
+                restInBook(incoming);
+                break;
+            case MatchEndReason::SelfTradePrevention:
+                emitSelfTradeCancelled(incoming);
+                break;
             }
-            if (order.tif == types::TimeInForce::IOC)
-            {
-                return; // discard unfilled
-            }
-
-            restInBook(incoming);
         }
 
         void cancelOrder(const engine::core::CancelOrder& request) noexcept

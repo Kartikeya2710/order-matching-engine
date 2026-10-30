@@ -10,7 +10,21 @@ using engine::core::TradeEvent;
 
 namespace
 {
-    constexpr types::ClientId CLIENT = 7;
+    using enum types::Verb;
+    using enum types::OrderType;
+    using enum types::TimeInForce;
+    using enum types::SelfTradePrevention;
+    using enum TradeEvent::Type;
+
+    // Tests that are not about self-trade prevention send buys from ALICE and sells from BOB.
+    constexpr types::ClientId ALICE = 7;
+    constexpr types::ClientId BOB = 8;
+
+    struct OrderOptions
+    {
+        types::TimeInForce tif = GTC;
+        types::SelfTradePrevention stp = CancelResting;
+    };
 
     class OrderBookTest : public ::testing::Test
     {
@@ -25,26 +39,83 @@ namespace
             }
         };
 
-        void addLimit(types::OrderId id, types::Verb side, types::Price price, types::Quantity qty)
+        void add(
+            types::ClientId client,
+            types::OrderId id,
+            types::Verb side,
+            types::OrderType orderType,
+            types::Price price,
+            types::Quantity qty,
+            OrderOptions opts
+        )
         {
             book.addOrder(
                 {.orderId = id,
-                 .clientId = CLIENT,
+                 .clientId = client,
                  .side = side,
-                 .orderType = types::OrderType::Limit,
-                 .tif = types::TimeInForce::GTC,
+                 .orderType = orderType,
+                 .tif = opts.tif,
+                 .stp = opts.stp,
                  .limitPrice = price,
                  .qty = qty}
             );
         }
 
-        void modify(types::OrderId id, types::Price newPrice, types::Quantity newQty)
+        void buy(
+            types::ClientId client,
+            types::OrderId id,
+            types::Price price,
+            types::Quantity qty,
+            OrderOptions opts = {}
+        )
+        {
+            add(client, id, Buy, Limit, price, qty, opts);
+        }
+
+        void sell(
+            types::ClientId client,
+            types::OrderId id,
+            types::Price price,
+            types::Quantity qty,
+            OrderOptions opts = {}
+        )
+        {
+            add(client, id, Sell, Limit, price, qty, opts);
+        }
+
+        void marketBuy(
+            types::ClientId client,
+            types::OrderId id,
+            types::Quantity qty,
+            types::SelfTradePrevention stp = CancelResting
+        )
+        {
+            add(client, id, Buy, Market, NO_PRICE, qty, {.tif = IOC, .stp = stp});
+        }
+
+        void marketSell(types::ClientId client, types::OrderId id, types::Quantity qty)
+        {
+            add(client, id, Sell, Market, NO_PRICE, qty, {.tif = IOC});
+        }
+
+        void cancel(types::ClientId client, types::OrderId id)
+        {
+            book.cancelOrder({.orderId = id, .clientId = client});
+        }
+
+        void modify(
+            types::ClientId client,
+            types::OrderId id,
+            types::Price newPrice,
+            types::Quantity newQty
+        )
         {
             book.modifyOrder(
-                {.orderId = id, .clientId = CLIENT, .newLimitPrice = newPrice, .newQty = newQty}
+                {.orderId = id, .clientId = client, .newLimitPrice = newPrice, .newQty = newQty}
             );
         }
 
+        // The passive order is filled in full.
         static void expectFill(
             const TradeEvent& ev,
             types::OrderId aggressorId,
@@ -54,11 +125,72 @@ namespace
             types::Quantity aggressorRemaining
         )
         {
+            EXPECT_EQ(ev.type, Fill);
             EXPECT_EQ(ev.aggressorOrderId, aggressorId);
             EXPECT_EQ(ev.passiveOrderId, passiveId);
             EXPECT_EQ(ev.fillPrice, price);
             EXPECT_EQ(ev.fillQty, qty);
             EXPECT_EQ(ev.aggressorRemaining, aggressorRemaining);
+            EXPECT_EQ(ev.passiveRemaining, 0u);
+        }
+
+        // The aggressor is filled in full, and the passive order keeps passiveRemaining.
+        static void expectPartialFill(
+            const TradeEvent& ev,
+            types::OrderId aggressorId,
+            types::OrderId passiveId,
+            types::Price price,
+            types::Quantity qty,
+            types::Quantity passiveRemaining
+        )
+        {
+            EXPECT_EQ(ev.type, PartialFill);
+            EXPECT_EQ(ev.aggressorOrderId, aggressorId);
+            EXPECT_EQ(ev.passiveOrderId, passiveId);
+            EXPECT_EQ(ev.fillPrice, price);
+            EXPECT_EQ(ev.fillQty, qty);
+            EXPECT_EQ(ev.aggressorRemaining, 0u);
+            EXPECT_EQ(ev.passiveRemaining, passiveRemaining);
+        }
+
+        static void expectAccepted(
+            const TradeEvent& ev,
+            types::OrderId orderId,
+            types::Quantity qty
+        )
+        {
+            EXPECT_EQ(ev.type, OrderAccepted);
+            EXPECT_EQ(ev.aggressorOrderId, orderId);
+            EXPECT_EQ(ev.aggressorRemaining, qty);
+        }
+
+        static void expectRejected(const TradeEvent& ev, types::OrderId orderId)
+        {
+            EXPECT_EQ(ev.type, OrderRejected);
+            EXPECT_EQ(ev.aggressorOrderId, orderId);
+        }
+
+        static void expectCancelled(const TradeEvent& ev, types::OrderId orderId)
+        {
+            EXPECT_EQ(ev.type, OrderCancelled);
+            EXPECT_EQ(ev.aggressorOrderId, orderId);
+        }
+
+        // ALICE's order cancelledId is cancelled with cancelledQty open. cancelledBy is the
+        // incoming order that cancelled a resting order, or 0 when the incoming order itself is
+        // cancelled.
+        static void expectSelfTradeCancelled(
+            const TradeEvent& ev,
+            types::OrderId cancelledId,
+            types::Quantity cancelledQty,
+            types::OrderId cancelledBy = 0
+        )
+        {
+            EXPECT_EQ(ev.type, SelfTradeCancelled);
+            EXPECT_EQ(ev.aggressorOrderId, cancelledId);
+            EXPECT_EQ(ev.aggressorClientId, ALICE);
+            EXPECT_EQ(ev.aggressorRemaining, cancelledQty);
+            EXPECT_EQ(ev.passiveOrderId, cancelledBy);
         }
 
         // Sends a 0-quantity buy against a resting sell and checks that it is rejected
@@ -69,35 +201,24 @@ namespace
             types::Price limitPrice
         )
         {
-            addLimit(1, types::Verb::Sell, 10100, 10);
+            sell(BOB, 1, 10100, 10);
             const uint32_t freeCount = book.poolFreeCount();
             events.clear();
 
-            book.addOrder(
-                {.orderId = 2,
-                 .clientId = CLIENT,
-                 .side = types::Verb::Buy,
-                 .orderType = orderType,
-                 .tif = tif,
-                 .limitPrice = limitPrice,
-                 .qty = 0}
-            );
+            add(ALICE, 2, Buy, orderType, limitPrice, 0, {.tif = tif});
 
             ASSERT_EQ(events.size(), 1u);
-            EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
-            EXPECT_EQ(events[0].aggressorOrderId, 2u);
+            expectRejected(events[0], 2);
             EXPECT_EQ(book.bestBid(), NO_PRICE);
             EXPECT_EQ(book.bestAsk(), 10100u);
             EXPECT_EQ(book.poolFreeCount(), freeCount);
 
             // The resting sell still has its full quantity.
             events.clear();
-            addLimit(3, types::Verb::Buy, 10100, 10);
+            buy(ALICE, 3, 10100, 10);
 
             ASSERT_EQ(events.size(), 1u);
-            EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
-            EXPECT_EQ(events[0].passiveOrderId, 1u);
-            EXPECT_EQ(events[0].fillQty, 10u);
+            expectFill(events[0], 3, 1, 10100, 10, 0);
             EXPECT_EQ(book.bestAsk(), NO_PRICE);
         }
 
@@ -105,15 +226,14 @@ namespace
         // rejected without touching the book.
         void expectLimitBuyRejected(types::Price price)
         {
-            addLimit(1, types::Verb::Sell, 15000, 10);
+            sell(BOB, 1, 15000, 10);
             const uint32_t freeCount = book.poolFreeCount();
             events.clear();
 
-            addLimit(2, types::Verb::Buy, price, 10);
+            buy(ALICE, 2, price, 10);
 
             ASSERT_EQ(events.size(), 1u);
-            EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
-            EXPECT_EQ(events[0].aggressorOrderId, 2u);
+            expectRejected(events[0], 2);
             EXPECT_EQ(book.bestBid(), NO_PRICE);
             EXPECT_EQ(book.bestAsk(), 15000u);
             EXPECT_EQ(book.poolFreeCount(), freeCount);
@@ -123,18 +243,17 @@ namespace
         // the buy still rests at 15000 with its full quantity.
         void expectModifyRejected(types::Price price)
         {
-            addLimit(1, types::Verb::Buy, 15000, 10);
+            buy(ALICE, 1, 15000, 10);
             events.clear();
 
-            modify(1, price, 10);
+            modify(ALICE, 1, price, 10);
 
             ASSERT_EQ(events.size(), 1u);
-            EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
-            EXPECT_EQ(events[0].aggressorOrderId, 1u);
+            expectRejected(events[0], 1);
             EXPECT_EQ(book.bestBid(), 15000u);
 
             events.clear();
-            addLimit(2, types::Verb::Sell, 15000, 10);
+            sell(BOB, 2, 15000, 10);
 
             ASSERT_EQ(events.size(), 1u);
             expectFill(events[0], 2, 1, 15000, 10, 0);
@@ -143,68 +262,73 @@ namespace
 
     TEST_F(OrderBookTest, ZeroQtyMarketOrderIsRejected)
     {
-        expectZeroQtyBuyRejected(types::OrderType::Market, types::TimeInForce::IOC, NO_PRICE);
+        expectZeroQtyBuyRejected(Market, IOC, NO_PRICE);
     }
 
     TEST_F(OrderBookTest, ZeroQtyLimitGtcOrderIsRejected)
     {
-        expectZeroQtyBuyRejected(types::OrderType::Limit, types::TimeInForce::GTC, 10100);
+        expectZeroQtyBuyRejected(Limit, GTC, 10100);
     }
 
     TEST_F(OrderBookTest, ZeroQtyLimitIocOrderIsRejected)
     {
-        expectZeroQtyBuyRejected(types::OrderType::Limit, types::TimeInForce::IOC, 10100);
+        expectZeroQtyBuyRejected(Limit, IOC, 10100);
     }
 
     TEST_F(OrderBookTest, ZeroQtyLimitFokOrderIsRejected)
     {
-        expectZeroQtyBuyRejected(types::OrderType::Limit, types::TimeInForce::FOK, 10100);
+        expectZeroQtyBuyRejected(Limit, FOK, 10100);
     }
 
     TEST_F(OrderBookTest, ModifyToZeroQtyAtSamePriceIsRejected)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
+        sell(BOB, 1, 10100, 10);
         events.clear();
 
-        book.modifyOrder({.orderId = 1, .clientId = CLIENT, .newLimitPrice = 10100, .newQty = 0});
+        modify(BOB, 1, 10100, 0);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
-        EXPECT_EQ(events[0].aggressorOrderId, 1u);
+        expectRejected(events[0], 1);
 
         // The order still rests with its full quantity.
         events.clear();
-        addLimit(2, types::Verb::Buy, 10100, 10);
+        buy(ALICE, 2, 10100, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
-        EXPECT_EQ(events[0].passiveOrderId, 1u);
-        EXPECT_EQ(events[0].fillQty, 10u);
+        expectFill(events[0], 2, 1, 10100, 10, 0);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
     }
 
     TEST_F(OrderBookTest, ModifyToZeroQtyAtNewPriceIsRejected)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
+        sell(BOB, 1, 10100, 10);
         events.clear();
 
-        book.modifyOrder({.orderId = 1, .clientId = CLIENT, .newLimitPrice = 10200, .newQty = 0});
+        modify(BOB, 1, 10200, 0);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
-        EXPECT_EQ(events[0].aggressorOrderId, 1u);
+        expectRejected(events[0], 1);
         EXPECT_EQ(book.bestAsk(), 10100u);
 
         // The order still rests at its old price with its full quantity.
         events.clear();
-        addLimit(2, types::Verb::Buy, 10100, 10);
+        buy(ALICE, 2, 10100, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
-        EXPECT_EQ(events[0].passiveOrderId, 1u);
-        EXPECT_EQ(events[0].fillPrice, 10100u);
-        EXPECT_EQ(events[0].fillQty, 10u);
+        expectFill(events[0], 2, 1, 10100, 10, 0);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    TEST_F(OrderBookTest, ModifyOfUnknownOrderIsRejected)
+    {
+        buy(ALICE, 1, 10100, 10);
+        events.clear();
+
+        modify(ALICE, 2, 10105, 10);
+
+        ASSERT_EQ(events.size(), 1u);
+        expectRejected(events[0], 2);
+        EXPECT_EQ(book.bestBid(), 10100u);
     }
 
     // Prices at the book's boundary. The range is 10000 to 20000 with a tick of 5.
@@ -241,12 +365,12 @@ namespace
 
     TEST_F(OrderBookTest, ModifyToMinAndMaxPricesRests)
     {
-        addLimit(1, types::Verb::Buy, 15000, 10);
-        addLimit(2, types::Verb::Sell, 15005, 10);
+        buy(ALICE, 1, 15000, 10);
+        sell(BOB, 2, 15005, 10);
         events.clear();
 
-        modify(1, 10000, 10);
-        modify(2, 20000, 10);
+        modify(ALICE, 1, 10000, 10);
+        modify(BOB, 2, 20000, 10);
 
         EXPECT_TRUE(events.empty());
         EXPECT_EQ(book.bestBid(), 10000u);
@@ -255,57 +379,54 @@ namespace
 
     TEST_F(OrderBookTest, ModifyWithSamePriceAndQtyKeepsTimePriority)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
-        addLimit(2, types::Verb::Sell, 10100, 10);
+        sell(BOB, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
         events.clear();
 
-        book.modifyOrder({.orderId = 1, .clientId = CLIENT, .newLimitPrice = 10100, .newQty = 10});
+        modify(BOB, 1, 10100, 10);
 
         EXPECT_TRUE(events.empty());
 
         // Order 1 is still first in the queue.
-        addLimit(3, types::Verb::Buy, 10100, 10);
+        buy(ALICE, 3, 10100, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
-        EXPECT_EQ(events[0].passiveOrderId, 1u);
-        EXPECT_EQ(events[0].fillQty, 10u);
+        expectFill(events[0], 3, 1, 10100, 10, 0);
         EXPECT_EQ(book.bestAsk(), 10100u);
     }
 
     TEST_F(OrderBookTest, ModifiedPriceThatDoesNotCrossRestsWithoutEvents)
     {
-        addLimit(1, types::Verb::Buy, 10000, 10);
-        addLimit(2, types::Verb::Sell, 10200, 10);
+        buy(ALICE, 1, 10000, 10);
+        sell(BOB, 2, 10200, 10);
         events.clear();
 
-        modify(1, 10100, 10);
+        modify(ALICE, 1, 10100, 10);
 
         EXPECT_TRUE(events.empty());
         EXPECT_EQ(book.bestBid(), 10100u);
         EXPECT_EQ(book.bestAsk(), 10200u);
 
         // The bid rests at its new price with its full quantity.
-        addLimit(3, types::Verb::Sell, 10100, 10);
+        sell(BOB, 3, 10100, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
         expectFill(events[0], 3, 1, 10100, 10, 0);
         EXPECT_EQ(book.bestBid(), NO_PRICE);
     }
 
     TEST_F(OrderBookTest, ModifyQtyUpAtSamePriceLosesTimePriority)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
-        addLimit(2, types::Verb::Sell, 10100, 10);
+        sell(BOB, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
         events.clear();
 
-        modify(1, 10100, 15);
+        modify(BOB, 1, 10100, 15);
 
         EXPECT_TRUE(events.empty());
 
         // Order 2 is now first in the queue, and order 1 rests behind it with 15.
-        addLimit(3, types::Verb::Buy, 10100, 25);
+        buy(ALICE, 3, 10100, 25);
 
         ASSERT_EQ(events.size(), 2u);
         expectFill(events[0], 3, 2, 10100, 10, 15);
@@ -315,21 +436,20 @@ namespace
 
     TEST_F(OrderBookTest, ModifiedBidThatCrossesFillsPartlyThenRests)
     {
-        addLimit(1, types::Verb::Sell, 10100, 4);
-        addLimit(2, types::Verb::Buy, 10000, 10);
+        sell(BOB, 1, 10100, 4);
+        buy(ALICE, 2, 10000, 10);
         events.clear();
 
-        modify(2, 10100, 10);
+        modify(ALICE, 2, 10100, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
         expectFill(events[0], 2, 1, 10100, 4, 6);
         EXPECT_EQ(book.bestBid(), 10100u);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
 
         // The rest of the bid rests at 10100.
         events.clear();
-        addLimit(3, types::Verb::Sell, 10100, 6);
+        sell(BOB, 3, 10100, 6);
 
         ASSERT_EQ(events.size(), 1u);
         expectFill(events[0], 3, 2, 10100, 6, 0);
@@ -338,21 +458,20 @@ namespace
 
     TEST_F(OrderBookTest, ModifiedAskThatCrossesFillsPartlyThenRests)
     {
-        addLimit(1, types::Verb::Buy, 10100, 4);
-        addLimit(2, types::Verb::Sell, 10200, 10);
+        buy(ALICE, 1, 10100, 4);
+        sell(BOB, 2, 10200, 10);
         events.clear();
 
-        modify(2, 10100, 10);
+        modify(BOB, 2, 10100, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
         expectFill(events[0], 2, 1, 10100, 4, 6);
         EXPECT_EQ(book.bestBid(), NO_PRICE);
         EXPECT_EQ(book.bestAsk(), 10100u);
 
         // The rest of the ask rests at 10100.
         events.clear();
-        addLimit(3, types::Verb::Buy, 10100, 6);
+        buy(ALICE, 3, 10100, 6);
 
         ASSERT_EQ(events.size(), 1u);
         expectFill(events[0], 3, 2, 10100, 6, 0);
@@ -362,14 +481,13 @@ namespace
     TEST_F(OrderBookTest, ModifiedBidThatCrossesFillsFully)
     {
         const uint32_t freeCount = book.poolFreeCount();
-        addLimit(1, types::Verb::Sell, 10100, 10);
-        addLimit(2, types::Verb::Buy, 10000, 10);
+        sell(BOB, 1, 10100, 10);
+        buy(ALICE, 2, 10000, 10);
         events.clear();
 
-        modify(2, 10100, 10);
+        modify(ALICE, 2, 10100, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
         expectFill(events[0], 2, 1, 10100, 10, 0);
         EXPECT_EQ(book.bestBid(), NO_PRICE);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
@@ -377,23 +495,22 @@ namespace
 
         // The bid is gone, so cancelling it is rejected.
         events.clear();
-        book.cancelOrder({.orderId = 2, .clientId = CLIENT});
+        cancel(ALICE, 2);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        expectRejected(events[0], 2);
     }
 
     TEST_F(OrderBookTest, ModifiedAskThatCrossesFillsFully)
     {
         const uint32_t freeCount = book.poolFreeCount();
-        addLimit(1, types::Verb::Buy, 10100, 10);
-        addLimit(2, types::Verb::Sell, 10200, 10);
+        buy(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10200, 10);
         events.clear();
 
-        modify(2, 10100, 10);
+        modify(BOB, 2, 10100, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
         expectFill(events[0], 2, 1, 10100, 10, 0);
         EXPECT_EQ(book.bestBid(), NO_PRICE);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
@@ -401,21 +518,21 @@ namespace
 
         // The ask is gone, so cancelling it is rejected.
         events.clear();
-        book.cancelOrder({.orderId = 2, .clientId = CLIENT});
+        cancel(BOB, 2);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        expectRejected(events[0], 2);
     }
 
     TEST_F(OrderBookTest, ModifiedBidThatCrossesSweepsLevels)
     {
-        addLimit(1, types::Verb::Sell, 10100, 5);
-        addLimit(2, types::Verb::Sell, 10105, 5);
-        addLimit(3, types::Verb::Sell, 10110, 5);
-        addLimit(4, types::Verb::Buy, 10000, 12);
+        sell(BOB, 1, 10100, 5);
+        sell(BOB, 2, 10105, 5);
+        sell(BOB, 3, 10110, 5);
+        buy(ALICE, 4, 10000, 12);
         events.clear();
 
-        modify(4, 10105, 12);
+        modify(ALICE, 4, 10105, 12);
 
         ASSERT_EQ(events.size(), 2u);
         expectFill(events[0], 4, 1, 10100, 5, 7);
@@ -426,13 +543,13 @@ namespace
 
     TEST_F(OrderBookTest, ModifiedAskThatCrossesSweepsLevels)
     {
-        addLimit(1, types::Verb::Buy, 10110, 5);
-        addLimit(2, types::Verb::Buy, 10105, 5);
-        addLimit(3, types::Verb::Buy, 10100, 5);
-        addLimit(4, types::Verb::Sell, 10200, 12);
+        buy(ALICE, 1, 10110, 5);
+        buy(ALICE, 2, 10105, 5);
+        buy(ALICE, 3, 10100, 5);
+        sell(BOB, 4, 10200, 12);
         events.clear();
 
-        modify(4, 10105, 12);
+        modify(BOB, 4, 10105, 12);
 
         ASSERT_EQ(events.size(), 2u);
         expectFill(events[0], 4, 1, 10110, 5, 7);
@@ -446,57 +563,57 @@ namespace
 
     TEST_F(OrderBookTest, BestBidMovesToPreviousWordWhenBestLevelEmpties)
     {
-        addLimit(1, types::Verb::Buy, 10320, 10);
-        addLimit(2, types::Verb::Buy, 10315, 10);
+        buy(ALICE, 1, 10320, 10);
+        buy(ALICE, 2, 10315, 10);
         EXPECT_EQ(book.bestBid(), 10320u);
 
-        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+        cancel(ALICE, 1);
 
         EXPECT_EQ(book.bestBid(), 10315u);
     }
 
     TEST_F(OrderBookTest, BestAskMovesToNextWordWhenBestLevelEmpties)
     {
-        addLimit(1, types::Verb::Sell, 10315, 10);
-        addLimit(2, types::Verb::Sell, 10320, 10);
+        sell(BOB, 1, 10315, 10);
+        sell(BOB, 2, 10320, 10);
         EXPECT_EQ(book.bestAsk(), 10315u);
 
-        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+        cancel(BOB, 1);
 
         EXPECT_EQ(book.bestAsk(), 10320u);
     }
 
     TEST_F(OrderBookTest, BestBidSkipsEmptyWordsWhenBestLevelEmpties)
     {
-        addLimit(1, types::Verb::Buy, 10640, 10);
-        addLimit(2, types::Verb::Buy, 10000, 10);
+        buy(ALICE, 1, 10640, 10);
+        buy(ALICE, 2, 10000, 10);
         EXPECT_EQ(book.bestBid(), 10640u);
 
-        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+        cancel(ALICE, 1);
 
         EXPECT_EQ(book.bestBid(), 10000u);
     }
 
     TEST_F(OrderBookTest, BestAskSkipsEmptyWordsWhenBestLevelEmpties)
     {
-        addLimit(1, types::Verb::Sell, 10000, 10);
-        addLimit(2, types::Verb::Sell, 10640, 10);
+        sell(BOB, 1, 10000, 10);
+        sell(BOB, 2, 10640, 10);
         EXPECT_EQ(book.bestAsk(), 10000u);
 
-        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+        cancel(BOB, 1);
 
         EXPECT_EQ(book.bestAsk(), 10640u);
     }
 
     TEST_F(OrderBookTest, BestPricesClearWhenLevelsAtRangeEdgesEmpty)
     {
-        addLimit(1, types::Verb::Buy, 10000, 10);
-        addLimit(2, types::Verb::Sell, 20000, 10);
+        buy(ALICE, 1, 10000, 10);
+        sell(BOB, 2, 20000, 10);
         EXPECT_EQ(book.bestBid(), 10000u);
         EXPECT_EQ(book.bestAsk(), 20000u);
 
-        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
-        book.cancelOrder({.orderId = 2, .clientId = CLIENT});
+        cancel(ALICE, 1);
+        cancel(BOB, 2);
 
         EXPECT_EQ(book.bestBid(), NO_PRICE);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
@@ -506,43 +623,27 @@ namespace
 
     TEST_F(OrderBookTest, FokSellWalksBidLevelsAcrossWordBoundary)
     {
-        addLimit(1, types::Verb::Buy, 10320, 5);
-        addLimit(2, types::Verb::Buy, 10315, 5);
+        buy(ALICE, 1, 10320, 5);
+        buy(ALICE, 2, 10315, 5);
         events.clear();
 
-        book.addOrder(
-            {.orderId = 3,
-             .clientId = CLIENT,
-             .side = types::Verb::Sell,
-             .orderType = types::OrderType::Limit,
-             .tif = types::TimeInForce::FOK,
-             .limitPrice = 10315,
-             .qty = 11}
-        );
+        sell(BOB, 3, 10315, 11, {.tif = FOK});
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        expectRejected(events[0], 3);
         EXPECT_EQ(book.bestBid(), 10320u);
     }
 
     TEST_F(OrderBookTest, FokBuyWalksAskLevelsAcrossWordBoundary)
     {
-        addLimit(1, types::Verb::Sell, 10315, 5);
-        addLimit(2, types::Verb::Sell, 10320, 5);
+        sell(BOB, 1, 10315, 5);
+        sell(BOB, 2, 10320, 5);
         events.clear();
 
-        book.addOrder(
-            {.orderId = 3,
-             .clientId = CLIENT,
-             .side = types::Verb::Buy,
-             .orderType = types::OrderType::Limit,
-             .tif = types::TimeInForce::FOK,
-             .limitPrice = 10320,
-             .qty = 11}
-        );
+        buy(ALICE, 3, 10320, 11, {.tif = FOK});
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        expectRejected(events[0], 3);
         EXPECT_EQ(book.bestAsk(), 10315u);
     }
 
@@ -550,42 +651,107 @@ namespace
 
     TEST_F(OrderBookTest, FokSellStopsWalkingAtMinPrice)
     {
-        addLimit(1, types::Verb::Buy, 10000, 5);
+        buy(ALICE, 1, 10000, 5);
         events.clear();
 
-        book.addOrder(
-            {.orderId = 2,
-             .clientId = CLIENT,
-             .side = types::Verb::Sell,
-             .orderType = types::OrderType::Limit,
-             .tif = types::TimeInForce::FOK,
-             .limitPrice = 10000,
-             .qty = 6}
-        );
+        sell(BOB, 2, 10000, 6, {.tif = FOK});
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        expectRejected(events[0], 2);
         EXPECT_EQ(book.bestBid(), 10000u);
     }
 
     TEST_F(OrderBookTest, FokBuyStopsWalkingAtMaxPrice)
     {
-        addLimit(1, types::Verb::Sell, 20000, 5);
+        sell(BOB, 1, 20000, 5);
         events.clear();
 
-        book.addOrder(
-            {.orderId = 2,
-             .clientId = CLIENT,
-             .side = types::Verb::Buy,
-             .orderType = types::OrderType::Limit,
-             .tif = types::TimeInForce::FOK,
-             .limitPrice = 20000,
-             .qty = 6}
-        );
+        buy(ALICE, 2, 20000, 6, {.tif = FOK});
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderRejected);
+        expectRejected(events[0], 2);
         EXPECT_EQ(book.bestAsk(), 20000u);
+    }
+
+    // The walk counts only the levels within the FOK's limit.
+
+    TEST_F(OrderBookTest, FokBuyIsKilledWhenItNeedsLevelsBeyondItsLimit)
+    {
+        sell(BOB, 1, 10100, 5);
+        sell(BOB, 2, 10105, 10);
+        const uint32_t freeCount = book.poolFreeCount();
+        events.clear();
+
+        buy(ALICE, 3, 10100, 10, {.tif = FOK});
+
+        ASSERT_EQ(events.size(), 1u);
+        expectRejected(events[0], 3);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    TEST_F(OrderBookTest, FokSellIsKilledWhenItNeedsLevelsBeyondItsLimit)
+    {
+        buy(ALICE, 1, 10105, 5);
+        buy(ALICE, 2, 10100, 10);
+        const uint32_t freeCount = book.poolFreeCount();
+        events.clear();
+
+        sell(BOB, 3, 10105, 10, {.tif = FOK});
+
+        ASSERT_EQ(events.size(), 1u);
+        expectRejected(events[0], 3);
+        EXPECT_EQ(book.bestBid(), 10105u);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    TEST_F(OrderBookTest, FokBuyFillsWhenLevelsHoldExactlyItsQuantity)
+    {
+        sell(BOB, 1, 10100, 5);
+        sell(BOB, 2, 10105, 5);
+        events.clear();
+
+        buy(ALICE, 3, 10105, 10, {.tif = FOK});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 3, 1, 10100, 5, 5);
+        expectFill(events[1], 3, 2, 10105, 5, 0);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    // Market orders have no price limit. What the book cannot fill is rejected.
+
+    TEST_F(OrderBookTest, MarketBuyFillsAcrossLevels)
+    {
+        sell(BOB, 1, 10100, 5);
+        sell(BOB, 2, 10200, 10);
+        events.clear();
+
+        marketBuy(ALICE, 3, 10);
+
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 3, 1, 10100, 5, 5);
+        expectPartialFill(events[1], 3, 2, 10200, 5, 5);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), 10200u);
+    }
+
+    TEST_F(OrderBookTest, MarketSellRejectsWhatTheBookCannotFill)
+    {
+        buy(ALICE, 1, 10100, 5);
+        events.clear();
+
+        marketSell(BOB, 2, 8);
+
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 2, 1, 10100, 5, 3);
+        expectRejected(events[1], 2);
+        EXPECT_EQ(events[1].aggressorRemaining, 3u);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
     }
 
     // remove() and reduce() find a resting order's level from the level handle in its slot, and
@@ -595,64 +761,59 @@ namespace
 
     TEST_F(OrderBookTest, PartlyFilledRestingOrderKeepsItsRemainder)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
+        sell(BOB, 1, 10100, 10);
         events.clear();
 
-        addLimit(2, types::Verb::Buy, 10100, 4);
+        buy(ALICE, 2, 10100, 4);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::PartialFill);
-        expectFill(events[0], 2, 1, 10100, 4, 0);
-        EXPECT_EQ(events[0].passiveRemaining, 6u);
+        expectPartialFill(events[0], 2, 1, 10100, 4, 6);
         EXPECT_EQ(book.bestAsk(), 10100u);
 
         // The rest of the sell still rests at 10100.
         events.clear();
-        addLimit(3, types::Verb::Buy, 10100, 6);
+        buy(ALICE, 3, 10100, 6);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
         expectFill(events[0], 3, 1, 10100, 6, 0);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
     }
 
     TEST_F(OrderBookTest, ModifyQtyDownAtSamePriceKeepsTimePriority)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
-        addLimit(2, types::Verb::Sell, 10100, 10);
+        sell(BOB, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
         events.clear();
 
-        modify(1, 10100, 4);
+        modify(BOB, 1, 10100, 4);
 
         EXPECT_TRUE(events.empty());
 
         // Order 1 is still first in the queue, now with 4.
-        addLimit(3, types::Verb::Buy, 10100, 14);
+        buy(ALICE, 3, 10100, 14);
 
         ASSERT_EQ(events.size(), 2u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::Fill);
         expectFill(events[0], 3, 1, 10100, 4, 10);
-        EXPECT_EQ(events[1].type, TradeEvent::Type::Fill);
         expectFill(events[1], 3, 2, 10100, 10, 0);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
     }
 
     TEST_F(OrderBookTest, CancelInMiddleOfQueueKeepsOtherOrdersInPlace)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
-        addLimit(2, types::Verb::Sell, 10100, 10);
-        addLimit(3, types::Verb::Sell, 10100, 10);
+        sell(BOB, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        sell(BOB, 3, 10100, 10);
         events.clear();
 
-        book.cancelOrder({.orderId = 2, .clientId = CLIENT});
+        cancel(BOB, 2);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderCancelled);
+        expectCancelled(events[0], 2);
         EXPECT_EQ(book.bestAsk(), 10100u);
 
         // Orders 1 and 3 fill in their original order.
         events.clear();
-        addLimit(4, types::Verb::Buy, 10100, 20);
+        buy(ALICE, 4, 10100, 20);
 
         ASSERT_EQ(events.size(), 2u);
         expectFill(events[0], 4, 1, 10100, 10, 10);
@@ -662,20 +823,20 @@ namespace
 
     TEST_F(OrderBookTest, CancelAtTailOfQueueKeepsOtherOrdersInPlace)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
-        addLimit(2, types::Verb::Sell, 10100, 10);
-        addLimit(3, types::Verb::Sell, 10100, 10);
+        sell(BOB, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        sell(BOB, 3, 10100, 10);
         events.clear();
 
-        book.cancelOrder({.orderId = 3, .clientId = CLIENT});
+        cancel(BOB, 3);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderCancelled);
+        expectCancelled(events[0], 3);
 
         // A new order joins the queue behind order 2, the new tail.
-        addLimit(4, types::Verb::Sell, 10100, 10);
+        sell(BOB, 4, 10100, 10);
         events.clear();
-        addLimit(5, types::Verb::Buy, 10100, 30);
+        buy(ALICE, 5, 10100, 30);
 
         ASSERT_EQ(events.size(), 3u);
         expectFill(events[0], 5, 1, 10100, 10, 20);
@@ -686,46 +847,46 @@ namespace
 
     TEST_F(OrderBookTest, CancelLastBidAtLevelBelowBestKeepsBestBid)
     {
-        addLimit(1, types::Verb::Buy, 10100, 10);
-        addLimit(2, types::Verb::Buy, 10050, 10);
+        buy(ALICE, 1, 10100, 10);
+        buy(ALICE, 2, 10050, 10);
         events.clear();
 
-        book.cancelOrder({.orderId = 2, .clientId = CLIENT});
+        cancel(ALICE, 2);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderCancelled);
+        expectCancelled(events[0], 2);
         EXPECT_EQ(book.bestBid(), 10100u);
 
         // Only order 1 is left to fill, and the rest of the sell rests.
         events.clear();
-        addLimit(3, types::Verb::Sell, 10000, 20);
+        sell(BOB, 3, 10000, 20);
 
         ASSERT_EQ(events.size(), 2u);
         expectFill(events[0], 3, 1, 10100, 10, 10);
-        EXPECT_EQ(events[1].type, TradeEvent::Type::OrderAccepted);
+        expectAccepted(events[1], 3, 10);
         EXPECT_EQ(book.bestBid(), NO_PRICE);
         EXPECT_EQ(book.bestAsk(), 10000u);
     }
 
     TEST_F(OrderBookTest, CancelLastAskAtLevelAboveBestKeepsBestAsk)
     {
-        addLimit(1, types::Verb::Sell, 10100, 10);
-        addLimit(2, types::Verb::Sell, 10150, 10);
+        sell(BOB, 1, 10100, 10);
+        sell(BOB, 2, 10150, 10);
         events.clear();
 
-        book.cancelOrder({.orderId = 2, .clientId = CLIENT});
+        cancel(BOB, 2);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderCancelled);
+        expectCancelled(events[0], 2);
         EXPECT_EQ(book.bestAsk(), 10100u);
 
         // Only order 1 is left to fill, and the rest of the buy rests.
         events.clear();
-        addLimit(3, types::Verb::Buy, 10200, 20);
+        buy(ALICE, 3, 10200, 20);
 
         ASSERT_EQ(events.size(), 2u);
         expectFill(events[0], 3, 1, 10100, 10, 10);
-        EXPECT_EQ(events[1].type, TradeEvent::Type::OrderAccepted);
+        expectAccepted(events[1], 3, 10);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
         EXPECT_EQ(book.bestBid(), 10200u);
     }
@@ -733,56 +894,487 @@ namespace
     TEST_F(OrderBookTest, PartlyFilledOrderCanBeCancelled)
     {
         const uint32_t freeCount = book.poolFreeCount();
-        addLimit(1, types::Verb::Sell, 10100, 10);
-        addLimit(2, types::Verb::Buy, 10100, 4);
+        sell(BOB, 1, 10100, 10);
+        buy(ALICE, 2, 10100, 4);
         events.clear();
 
-        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+        cancel(BOB, 1);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderCancelled);
+        expectCancelled(events[0], 1);
         EXPECT_EQ(book.bestAsk(), NO_PRICE);
         EXPECT_EQ(book.poolFreeCount(), freeCount);
     }
 
     TEST_F(OrderBookTest, MovedOrderIsCancelledFromItsNewLevel)
     {
-        addLimit(1, types::Verb::Buy, 10000, 10);
-        modify(1, 10100, 10);
+        buy(ALICE, 1, 10000, 10);
+        modify(ALICE, 1, 10100, 10);
         EXPECT_EQ(book.bestBid(), 10100u);
         events.clear();
 
-        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+        cancel(ALICE, 1);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderCancelled);
+        expectCancelled(events[0], 1);
         EXPECT_EQ(book.bestBid(), NO_PRICE);
 
         // Nothing is left at the old price, so a sell there rests.
         events.clear();
-        addLimit(2, types::Verb::Sell, 10000, 10);
+        sell(BOB, 2, 10000, 10);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderAccepted);
+        expectAccepted(events[0], 2, 10);
         EXPECT_EQ(book.bestAsk(), 10000u);
     }
 
     TEST_F(OrderBookTest, ReusedSlotIsCancelledFromItsNewLevel)
     {
         const uint32_t freeCount = book.poolFreeCount();
-        addLimit(1, types::Verb::Buy, 10100, 10);
-        book.cancelOrder({.orderId = 1, .clientId = CLIENT});
+        buy(ALICE, 1, 10100, 10);
+        cancel(ALICE, 1);
 
         // The pool hands the slot that order 1 freed to order 2.
-        addLimit(2, types::Verb::Buy, 10200, 10);
+        buy(ALICE, 2, 10200, 10);
         EXPECT_EQ(book.bestBid(), 10200u);
         events.clear();
 
-        book.cancelOrder({.orderId = 2, .clientId = CLIENT});
+        cancel(ALICE, 2);
 
         ASSERT_EQ(events.size(), 1u);
-        EXPECT_EQ(events[0].type, TradeEvent::Type::OrderCancelled);
+        expectCancelled(events[0], 2);
         EXPECT_EQ(book.bestBid(), NO_PRICE);
         EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    TEST_F(OrderBookTest, BookMatchesWithoutEventCallback)
+    {
+        const uint32_t freeCount = book.poolFreeCount();
+        book.setEventCallback(nullptr);
+
+        sell(BOB, 1, 10100, 10);
+        buy(ALICE, 2, 10100, 4);
+
+        EXPECT_EQ(book.bestAsk(), 10100u);
+        EXPECT_EQ(book.poolFreeCount(), freeCount - 1);
+
+        // Only 6 of order 1 is left.
+        buy(ALICE, 3, 10100, 6);
+
+        EXPECT_TRUE(events.empty());
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    // Self-trade prevention. ALICE's incoming order meets resting orders from BOB and from ALICE.
+    // Only the incoming order's mode counts.
+
+    // An order that does not set a mode uses cancel resting.
+    TEST_F(OrderBookTest, CancelRestingIsTheDefaultMode)
+    {
+        sell(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        events.clear();
+
+        // Sent without the helpers, which always set a mode.
+        book.addOrder(
+            {.orderId = 3,
+             .clientId = ALICE,
+             .side = Buy,
+             .orderType = Limit,
+             .tif = GTC,
+             .limitPrice = 10100,
+             .qty = 10}
+        );
+
+        ASSERT_EQ(events.size(), 2u);
+        expectSelfTradeCancelled(events[0], 1, 10, 3);
+        expectFill(events[1], 3, 2, 10100, 10, 0);
+    }
+
+    // Cancel resting: the incoming order cancels each own order it reaches and keeps matching.
+
+    TEST_F(OrderBookTest, CancelRestingCancelsOwnOrderAtFrontOfLevel)
+    {
+        const uint32_t freeCount = book.poolFreeCount();
+        sell(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 3, 10100, 10, {.stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectSelfTradeCancelled(events[0], 1, 10, 3);
+        expectFill(events[1], 3, 2, 10100, 10, 0);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    TEST_F(OrderBookTest, CancelRestingCancelsOwnOrderInMiddleOfLevel)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(ALICE, 2, 10100, 10);
+        sell(BOB, 3, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 4, 10100, 20, {.stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 3u);
+        expectFill(events[0], 4, 1, 10100, 10, 10);
+        expectSelfTradeCancelled(events[1], 2, 10, 4);
+        expectFill(events[2], 4, 3, 10100, 10, 0);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    TEST_F(OrderBookTest, CancelRestingCancelsOwnOrderAtBackOfLevelThenRests)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        sell(ALICE, 3, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 4, 10100, 25, {.stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 4u);
+        expectFill(events[0], 4, 1, 10100, 10, 15);
+        expectFill(events[1], 4, 2, 10100, 10, 5);
+        expectSelfTradeCancelled(events[2], 3, 10, 4);
+        expectAccepted(events[3], 4, 5);
+        EXPECT_EQ(book.bestBid(), 10100u);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    TEST_F(OrderBookTest, CancelRestingLeavesOwnOrderItDoesNotReach)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(ALICE, 2, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 3, 10100, 10, {.stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 1u);
+        expectFill(events[0], 3, 1, 10100, 10, 0);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+    }
+
+    TEST_F(OrderBookTest, CancelRestingCancelsOwnOrdersAcrossLevels)
+    {
+        sell(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10105, 10);
+        sell(ALICE, 3, 10110, 10);
+        sell(BOB, 4, 10110, 10);
+        events.clear();
+
+        buy(ALICE, 5, 10110, 20, {.stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 4u);
+        expectSelfTradeCancelled(events[0], 1, 10, 5);
+        expectFill(events[1], 5, 2, 10105, 10, 10);
+        expectSelfTradeCancelled(events[2], 3, 10, 5);
+        expectFill(events[3], 5, 4, 10110, 10, 0);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    TEST_F(OrderBookTest, CancelRestingCancelsWhatIsLeftOfPartlyFilledOwnOrder)
+    {
+        const uint32_t freeCount = book.poolFreeCount();
+        sell(ALICE, 1, 10100, 10);
+        // BOB fills 4 of order 1.
+        buy(BOB, 2, 10100, 4);
+        sell(BOB, 3, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 4, 10100, 10, {.stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectSelfTradeCancelled(events[0], 1, 6, 4);
+        expectFill(events[1], 4, 3, 10100, 10, 0);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    // Cancel aggressor: the incoming order stops at the first own order it reaches, and what is
+    // left of it is cancelled. The own order and the orders behind it keep resting.
+
+    TEST_F(OrderBookTest, CancelAggressorAtFrontOfLevelCancelsWholeOrder)
+    {
+        sell(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        const uint32_t freeCount = book.poolFreeCount();
+        events.clear();
+
+        buy(ALICE, 3, 10100, 10, {.stp = CancelAggressor});
+
+        ASSERT_EQ(events.size(), 1u);
+        expectSelfTradeCancelled(events[0], 3, 10);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    TEST_F(OrderBookTest, CancelAggressorInMiddleOfLevelCancelsTheRest)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(ALICE, 2, 10100, 10);
+        sell(BOB, 3, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 4, 10100, 25, {.stp = CancelAggressor});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 4, 1, 10100, 10, 15);
+        expectSelfTradeCancelled(events[1], 4, 15);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+
+        // Orders 2 and 3 still rest.
+        events.clear();
+        cancel(ALICE, 2);
+        cancel(BOB, 3);
+
+        ASSERT_EQ(events.size(), 2u);
+        expectCancelled(events[0], 2);
+        expectCancelled(events[1], 3);
+    }
+
+    TEST_F(OrderBookTest, CancelAggressorAtBackOfLevelCancelsTheRest)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        sell(ALICE, 3, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 4, 10100, 25, {.stp = CancelAggressor});
+
+        ASSERT_EQ(events.size(), 3u);
+        expectFill(events[0], 4, 1, 10100, 10, 15);
+        expectFill(events[1], 4, 2, 10100, 10, 5);
+        expectSelfTradeCancelled(events[2], 4, 5);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+    }
+
+    TEST_F(OrderBookTest, CancelAggressorStopsAtOwnOrderOnLaterLevel)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(ALICE, 2, 10105, 10);
+        sell(BOB, 3, 10105, 10);
+        events.clear();
+
+        buy(ALICE, 4, 10105, 20, {.stp = CancelAggressor});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 4, 1, 10100, 10, 10);
+        expectSelfTradeCancelled(events[1], 4, 10);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), 10105u);
+    }
+
+    // Market and IOC buys. What other clients cannot fill is rejected (market) or discarded (IOC),
+    // but a remainder cancelled by self-trade prevention is reported only as cancelled.
+
+    TEST_F(OrderBookTest, MarketCancelRestingRejectsWhatOthersCannotFill)
+    {
+        sell(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10105, 10);
+        events.clear();
+
+        marketBuy(ALICE, 3, 15, CancelResting);
+
+        ASSERT_EQ(events.size(), 3u);
+        expectSelfTradeCancelled(events[0], 1, 10, 3);
+        expectFill(events[1], 3, 2, 10105, 10, 5);
+        expectRejected(events[2], 3);
+        EXPECT_EQ(events[2].aggressorRemaining, 5u);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    TEST_F(OrderBookTest, MarketCancelAggressorIsCancelledNotRejected)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(ALICE, 2, 10105, 10);
+        events.clear();
+
+        marketBuy(ALICE, 3, 15, CancelAggressor);
+
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 3, 1, 10100, 10, 5);
+        expectSelfTradeCancelled(events[1], 3, 5);
+        EXPECT_EQ(book.bestAsk(), 10105u);
+    }
+
+    TEST_F(OrderBookTest, IocCancelRestingDiscardsWhatOthersCannotFill)
+    {
+        sell(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 3, 10100, 15, {.tif = IOC, .stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectSelfTradeCancelled(events[0], 1, 10, 3);
+        expectFill(events[1], 3, 2, 10100, 10, 5);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    TEST_F(OrderBookTest, IocCancelAggressorIsCancelledAtOwnOrder)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(ALICE, 2, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 3, 10100, 15, {.tif = IOC, .stp = CancelAggressor});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 3, 1, 10100, 10, 5);
+        expectSelfTradeCancelled(events[1], 3, 5);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+    }
+
+    // A FOK buy counts only what it can trade: under cancel resting, the sells of other clients;
+    // under cancel aggressor, the sells ahead of the first own sell. A killed FOK touches nothing.
+
+    TEST_F(OrderBookTest, FokCancelRestingFillsFromOtherClients)
+    {
+        sell(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 3, 10100, 10, {.tif = FOK, .stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectSelfTradeCancelled(events[0], 1, 10, 3);
+        expectFill(events[1], 3, 2, 10100, 10, 0);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    TEST_F(OrderBookTest, FokCancelRestingIsKilledWhenOwnOrdersAreNeeded)
+    {
+        sell(ALICE, 1, 10100, 10);
+        sell(BOB, 2, 10100, 5);
+        const uint32_t freeCount = book.poolFreeCount();
+        events.clear();
+
+        buy(ALICE, 3, 10100, 10, {.tif = FOK, .stp = CancelResting});
+
+        // Order 1 is not cancelled, so no slot is freed.
+        ASSERT_EQ(events.size(), 1u);
+        expectRejected(events[0], 3);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+    }
+
+    TEST_F(OrderBookTest, FokCancelAggressorFillsBeforeOwnOrder)
+    {
+        sell(BOB, 1, 10100, 10);
+        sell(ALICE, 2, 10100, 10);
+        events.clear();
+
+        buy(ALICE, 3, 10100, 10, {.tif = FOK, .stp = CancelAggressor});
+
+        ASSERT_EQ(events.size(), 1u);
+        expectFill(events[0], 3, 1, 10100, 10, 0);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+    }
+
+    TEST_F(OrderBookTest, FokCancelAggressorIsKilledWhenOwnOrderComesFirst)
+    {
+        sell(BOB, 1, 10100, 5);
+        sell(ALICE, 2, 10100, 10);
+        sell(BOB, 3, 10100, 10);
+        const uint32_t freeCount = book.poolFreeCount();
+        events.clear();
+
+        // BOB offers 15, but only 5 is ahead of order 2.
+        buy(ALICE, 4, 10100, 10, {.tif = FOK, .stp = CancelAggressor});
+
+        // Order 1 is not filled, so no slot is freed.
+        ASSERT_EQ(events.size(), 1u);
+        expectRejected(events[0], 4);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    // A modify that crosses matches with the mode the order entered with.
+
+    TEST_F(OrderBookTest, ModifiedBidWithCancelAggressorIsCancelledAtOwnOrder)
+    {
+        const uint32_t freeCount = book.poolFreeCount();
+        buy(ALICE, 1, 10000, 10, {.stp = CancelAggressor});
+        sell(BOB, 2, 10100, 4);
+        sell(ALICE, 3, 10100, 10);
+        events.clear();
+
+        modify(ALICE, 1, 10100, 10);
+
+        // Only order 3 is left.
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 1, 2, 10100, 4, 6);
+        expectSelfTradeCancelled(events[1], 1, 6);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), 10100u);
+        EXPECT_EQ(book.poolFreeCount(), freeCount - 1);
+
+        // The bid is gone, so cancelling it is rejected.
+        events.clear();
+        cancel(ALICE, 1);
+
+        ASSERT_EQ(events.size(), 1u);
+        expectRejected(events[0], 1);
+    }
+
+    TEST_F(OrderBookTest, ModifiedBidWithCancelRestingCancelsOwnOrderThenRests)
+    {
+        buy(ALICE, 1, 10000, 10, {.stp = CancelResting});
+        sell(ALICE, 2, 10100, 10);
+        sell(BOB, 3, 10100, 4);
+        events.clear();
+
+        modify(ALICE, 1, 10100, 10);
+
+        ASSERT_EQ(events.size(), 2u);
+        expectSelfTradeCancelled(events[0], 2, 10, 1);
+        expectFill(events[1], 1, 3, 10100, 4, 6);
+        EXPECT_EQ(book.bestBid(), 10100u);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+    }
+
+    // The same rules for an incoming sell.
+
+    TEST_F(OrderBookTest, SellCancelRestingCancelsOwnBidsAcrossLevels)
+    {
+        const uint32_t freeCount = book.poolFreeCount();
+        buy(ALICE, 1, 10110, 10);
+        buy(BOB, 2, 10105, 10);
+        buy(ALICE, 3, 10100, 10);
+        buy(BOB, 4, 10100, 10);
+        events.clear();
+
+        sell(ALICE, 5, 10100, 20, {.stp = CancelResting});
+
+        ASSERT_EQ(events.size(), 4u);
+        expectSelfTradeCancelled(events[0], 1, 10, 5);
+        expectFill(events[1], 5, 2, 10105, 10, 10);
+        expectSelfTradeCancelled(events[2], 3, 10, 5);
+        expectFill(events[3], 5, 4, 10100, 10, 0);
+        EXPECT_EQ(book.bestBid(), NO_PRICE);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
+        EXPECT_EQ(book.poolFreeCount(), freeCount);
+    }
+
+    TEST_F(OrderBookTest, SellCancelAggressorStopsAtOwnBidOnLaterLevel)
+    {
+        buy(BOB, 1, 10105, 10);
+        buy(ALICE, 2, 10100, 10);
+        buy(BOB, 3, 10100, 10);
+        events.clear();
+
+        sell(ALICE, 4, 10100, 20, {.stp = CancelAggressor});
+
+        ASSERT_EQ(events.size(), 2u);
+        expectFill(events[0], 4, 1, 10105, 10, 10);
+        expectSelfTradeCancelled(events[1], 4, 10);
+        EXPECT_EQ(book.bestBid(), 10100u);
+        EXPECT_EQ(book.bestAsk(), NO_PRICE);
     }
 } // namespace
