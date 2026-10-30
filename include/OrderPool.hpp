@@ -26,6 +26,7 @@ namespace engine::book
         types::Price price = 0;
         types::Quantity qty = 0;
         types::TimeInForce tif = types::TimeInForce::GTC;
+        types::SelfTradePrevention stp = types::SelfTradePrevention::CancelResting;
     };
 
     // One pool slot: an order, its links in its price level's queue and the handle of that level.
