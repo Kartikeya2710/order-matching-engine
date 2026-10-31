@@ -67,3 +67,7 @@ sim_results.json
 
 # clang
 .cache/
+
+# cpp-mentor (local learning setup)
+.cpp-mentor
+CLAUDE.md
